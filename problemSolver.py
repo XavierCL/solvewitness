@@ -7,6 +7,7 @@ problem = ProblemDefinition(array)
 stateQueue = deque(problem.getStarting())
 visited = set()
 satisfiedState = None
+steps = 0
 
 while len(stateQueue) > 0:
   nextStateAttempt = stateQueue.pop()
@@ -22,13 +23,14 @@ while len(stateQueue) > 0:
       satisfiedState = possibleNextState
       break
 
-    stateQueue.appendleft(possibleNextState)
+    stateQueue.append(possibleNextState)
 
   if satisfiedState is not None:
     break
+  steps += 1
 
 if satisfiedState is not None:
-  print("Satisfied")
-  print(arrayToPrintable(satisfiedState))
+  print("Satisfied in", steps, "steps")
+  print(arrayToPrintable(array, satisfiedState))
 else:
-  print("Unsatisfiable")
+  print("Unsatisfiable in", steps, "steps")

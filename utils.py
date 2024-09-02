@@ -9,10 +9,11 @@ def fileToArray(fileName: str) -> np.ndarray:
       array[lineIndex, charIndex] = s2c(char)
   return array
 
-def arrayToPrintable(array: np.ndarray) -> str:
+def arrayToPrintable(starting: np.ndarray, solution: np.ndarray) -> str:
   stringBuilder = ""
-  for line in array:
-    for char in line:
+  for x in range(len(starting)):
+    for y in range(len(starting[x])):
+      char = solution[x, y] if solution[x, y] != 0 else starting[x, y]
       stringBuilder += c2s(char) if char != 0 else '*'
     stringBuilder += "\n"
   return stringBuilder
