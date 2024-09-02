@@ -5,7 +5,6 @@ from collections import deque
 array = fileToArray("problemTypes/doubleColour/maps/actual1.txt")
 problem = ProblemDefinition(array)
 stateQueue = deque(problem.getStarting())
-visited = set()
 satisfiedState = None
 steps = 0
 
@@ -13,12 +12,6 @@ while len(stateQueue) > 0:
   nextStateAttempt = stateQueue.pop()
   possibleNextStates = problem.getNexts(nextStateAttempt)
   for possibleNextState in possibleNextStates:
-    possibleTuple = arrayToTuple(possibleNextState)
-    if possibleTuple in visited:
-      continue
-
-    visited.add(possibleTuple)
-
     if problem.isSatisfied(possibleNextState):
       satisfiedState = possibleNextState
       break
