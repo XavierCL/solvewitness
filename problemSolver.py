@@ -1,8 +1,8 @@
-from ConstraintLessProblem import ProblemDefinition
+from problemTypes.doubleColour.DoubleColourProblem import ProblemDefinition
 from utils import arrayToPrintable, arrayToTuple, fileToArray, arrayToDebug
 from collections import deque
 
-array = fileToArray("maps/constraintLess/simple1.txt")
+array = fileToArray("problemTypes/doubleColour/maps/actual1.txt")
 problem = ProblemDefinition(array)
 stateQueue = deque(problem.getStarting())
 visited = set()
