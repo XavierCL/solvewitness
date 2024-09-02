@@ -6,15 +6,18 @@ from utils import s2c, shift, arrayToDebug
 class ProblemDefinition(AbstractProblemDefinition):
   def __init__(self, starting: np.ndarray):
     self.starting = starting
+    self.bs = starting == s2c('b')
+    self.ys = starting == s2c('y')
+    self.es = np.argwhere(starting == s2c('e'))
 
   def getStarting(self):
     startingMask = self.starting == s2c('s')
     fakeStarter = np.zeros_like(self.starting)
-    fakeStarter[startingMask] = s2c('o')
     startingPositions = []
     for startingIndex in np.argwhere(startingMask):
       sampleStarting = np.copy(fakeStarter)
       sampleStarting[tuple(startingIndex)] = s2c('h')
+      sampleStarting[tuple([-value - 1 for value in startingIndex])] = s2c('o')
       startingPositions.append(sampleStarting)
       
     return startingPositions
@@ -51,6 +54,8 @@ class ProblemDefinition(AbstractProblemDefinition):
       nextState[nextMultiOMask] = s2c('o')
       nextStates.append(nextState)
 
+    nextStates.sort(key=lambda x: self.evalRemaining(x))
+
     return nextStates
 
   def isSatisfied(self, current):
@@ -65,3 +70,13 @@ class ProblemDefinition(AbstractProblemDefinition):
   
   def isUnsatisfiable(self, current):
     return False
+  
+  def evalRemaining(self, current):
+    coveredPath = current != 0
+    uncoveredBs = np.argwhere(np.all([self.bs, ~coveredPath], 0))
+    uncoveredYs = np.argwhere(np.all([self.ys, ~coveredPath], 0))
+    hPos = np.argwhere(current == s2c('h'))[0]
+    oPos = np.argwhere(current == s2c('o'))[0]
+    return np.sum(np.abs(uncoveredBs - hPos) * 2) + np.sum(np.abs(uncoveredYs - oPos) * 2) + np.min(np.sum(np.abs(self.es - hPos), axis=1))
+    
+
