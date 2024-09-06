@@ -7,7 +7,8 @@ class ProblemDefinition(AbstractProblemDefinition):
   def __init__(self, starting: np.ndarray):
     self.starting = starting
     self.spikes = np.array([starting[slice(1,-1,2),slice(1,-1,2)] == s2c(l) for l in ['z']])
-    self.squareColors = np.array([starting[slice(1,-1,2),slice(1,-1,2)] == s2c(l) for l in ['o', 'v']])
+    self.spikeColorPairMasks = np.array([starting[slice(1,-1,2),slice(1,-1,2)] == s2c(l) for l in ['b']])
+    self.squareColors = np.array([starting[slice(1,-1,2),slice(1,-1,2)] == s2c(l) for l in ['o', 'b', 'v']])
     self.es = np.argwhere(starting == s2c('e'))
     self.esMask = starting == s2c('e')
 
@@ -142,15 +143,21 @@ class ProblemDefinition(AbstractProblemDefinition):
     
   def isZoneSatisfied(self, zoneIndices, zoneIndex):
     zoneMask = (zoneIndices == zoneIndex)
-    spikesMask = np.all([self.spikes, np.repeat(zoneMask[np.newaxis,:,:], self.spikes.shape[0], axis=0)], 0)
-    spikesCount = np.count_nonzero(spikesMask, axis=(1, 2))
 
-    if np.any(np.all([spikesCount != 0, spikesCount != 2], 0)):
-      return False
-    
     squareColorsMask = np.all([self.squareColors, np.repeat(zoneMask[np.newaxis,:,:], self.squareColors.shape[0], axis=0)], 0)
 
     if np.count_nonzero(np.any(squareColorsMask, axis=(1, 2))) > 1:
+      return False
+
+    spikesMask = np.all([self.spikes, np.repeat(zoneMask[np.newaxis,:,:], self.spikes.shape[0], axis=0)], 0)
+    spikesCount = np.count_nonzero(spikesMask, axis=(1, 2))
+
+    spikeColorPairMask = np.all([self.spikeColorPairMasks, np.repeat(zoneMask[np.newaxis,:,:], self.spikeColorPairMasks.shape[0], axis=0)], 0)
+    spikeColorPairCount = np.count_nonzero(spikeColorPairMask, axis=(1, 2))
+
+    totalSpikeCounts = spikesCount + spikeColorPairCount
+
+    if np.any(np.all([spikesCount > 0, totalSpikeCounts != 0, totalSpikeCounts != 2], 0)):
       return False
     
     return True

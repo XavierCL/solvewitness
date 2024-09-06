@@ -3,7 +3,7 @@ from utils import arrayToPrintable, arrayToTuple, fileToArray, arrayToDebug
 from collections import deque
 import time
 
-array = fileToArray("problemTypes/squareColorAndPairSquares/maps/actual1.txt")
+array = fileToArray("problemTypes/squareColorAndPairSquares/maps/actual5.txt")
 problem = ProblemDefinition(array)
 stateQueue = deque(problem.getStarting())
 satisfiedState = None
@@ -11,7 +11,7 @@ steps = 0
 startTime = time.time()
 
 while len(stateQueue) > 0:
-  nextStateAttempt = stateQueue.pop()
+  nextStateAttempt = stateQueue.popleft()
   possibleNextStates = problem.getNexts(nextStateAttempt)
   for possibleNextState in possibleNextStates:
     if problem.isSatisfied(possibleNextState):
