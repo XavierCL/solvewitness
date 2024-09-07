@@ -6,7 +6,7 @@ from utils import s2c, shift, arrayToDebug
 class ProblemDefinition(AbstractProblemDefinition):
   def __init__(self, starting: np.ndarray):
     self.starting = starting
-    self.spikes = np.array([starting[slice(1,-1,2),slice(1,-1,2)] == s2c(l) for l in ['z']])
+    self.spikes = np.array([starting[slice(1,-1,2),slice(1,-1,2)] == s2c(l) for l in ['z', 'y', 'x']])
     self.spikeColorPairMasks = np.array([starting[slice(1,-1,2),slice(1,-1,2)] == s2c(l) for l in ['b']])
     self.squareColors = np.array([starting[slice(1,-1,2),slice(1,-1,2)] == s2c(l) for l in ['o', 'b', 'v']])
     self.es = np.argwhere(starting == s2c('e'))
@@ -89,20 +89,31 @@ class ProblemDefinition(AbstractProblemDefinition):
       return True
 
     zoneIndices = self.getZoneIndices(current)
-    headIndexOnFullMap = np.argwhere(current == s2c('h'))[0]
-    headIndexOnZoneMap = ((headIndexOnFullMap - 1) / 2).astype(np.int64)
-    endIndicesOnZoneMap = ((self.es - 1) / 2).astype(np.int64)
 
-    headZoneIndex = zoneIndices[tuple(headIndexOnZoneMap)]
+    headIndexOnFullMap = np.argwhere(current == s2c('h'))[0]
+    multiIndexOnFullMap = np.repeat(headIndexOnFullMap[np.newaxis,:], 4, axis=0)
+    multiIndexOnFullMap += [[-1, -1], [-1, 1], [1, -1], [1, 1]]
+    multiIndexOnFullMapCorrectMask = np.all([multiIndexOnFullMap < current.shape, multiIndexOnFullMap >= 0], (0, 2))
+    multiIndexOnFullMap = multiIndexOnFullMap[multiIndexOnFullMapCorrectMask]
+    multiHeadIndexOnZoneMap = (multiIndexOnFullMap / 2).astype(np.int64)
+
+    multiEs = np.repeat(self.es[:,np.newaxis,:], 4, axis=1)
+    multiEs += [[-1, -1], [-1, 1], [1, -1], [1, 1]]
+    multiEs = multiEs.reshape((-1, 2))
+    multiEsCorrectMask = np.all([multiEs < current.shape, multiEs >= 0], (0, 2))
+    multiEs = multiEs[multiEsCorrectMask]
+    endIndicesOnZoneMap = (multiEs / 2).astype(np.int64)
+
+    headZoneIndices = zoneIndices[tuple(multiHeadIndexOnZoneMap.T)]
     endZoneIndices = zoneIndices[tuple(endIndicesOnZoneMap.T)]
 
     # If the head can't reach any end
-    if np.all(endZoneIndices != headZoneIndex):
+    if np.intersect1d(endZoneIndices, headZoneIndices).size == 0:
       return True
     
     # If the zones out of head reach are unsatisfied
     for satisfiableZoneIndex in range(np.max(zoneIndices) + 1):
-      if satisfiableZoneIndex == headZoneIndex:
+      if np.any(headZoneIndices == satisfiableZoneIndex):
         continue
 
       if not self.isZoneSatisfied(zoneIndices, satisfiableZoneIndex):
@@ -112,7 +123,7 @@ class ProblemDefinition(AbstractProblemDefinition):
   
   def evalRemaining(self, current):
     hPos = np.argwhere(current == s2c('h'))[0]
-    return np.min(np.sum(np.abs(self.es - hPos), axis=1))
+    return int(np.min(np.sum(np.abs(self.es - hPos), axis=1)))
   
   def getZoneIndices(self, current):
     leftBlockers = np.any([current == s2c('p'), current == s2c('h')], 0)[slice(1, None, 2), slice(0, -2, 2)]
