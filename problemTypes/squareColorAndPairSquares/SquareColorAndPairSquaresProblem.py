@@ -28,6 +28,8 @@ class ProblemDefinition(AbstractProblemDefinition):
         realStarting += smallNexts
       else:
         realStarting.append(startingPosition)
+
+    realStarting.sort(key=lambda x: self.evalRemaining(x))
       
     return realStarting
 
@@ -89,23 +91,8 @@ class ProblemDefinition(AbstractProblemDefinition):
       return True
 
     zoneIndices = self.getZoneIndices(current)
-
-    headIndexOnFullMap = np.argwhere(current == s2c('h'))[0]
-    multiIndexOnFullMap = np.repeat(headIndexOnFullMap[np.newaxis,:], 4, axis=0)
-    multiIndexOnFullMap += [[-1, -1], [-1, 1], [1, -1], [1, 1]]
-    multiIndexOnFullMapCorrectMask = np.all([multiIndexOnFullMap < current.shape, multiIndexOnFullMap >= 0], (0, 2))
-    multiIndexOnFullMap = multiIndexOnFullMap[multiIndexOnFullMapCorrectMask]
-    multiHeadIndexOnZoneMap = (multiIndexOnFullMap / 2).astype(np.int64)
-
-    multiEs = np.repeat(self.es[:,np.newaxis,:], 4, axis=1)
-    multiEs += [[-1, -1], [-1, 1], [1, -1], [1, 1]]
-    multiEs = multiEs.reshape((-1, 2))
-    multiEsCorrectMask = np.all([multiEs < current.shape, multiEs >= 0], (0, 2))
-    multiEs = multiEs[multiEsCorrectMask]
-    endIndicesOnZoneMap = (multiEs / 2).astype(np.int64)
-
-    headZoneIndices = zoneIndices[tuple(multiHeadIndexOnZoneMap.T)]
-    endZoneIndices = zoneIndices[tuple(endIndicesOnZoneMap.T)]
+    headZoneIndices = self.fullMapToZoneIndex(np.argwhere(current == s2c('h')), zoneIndices)
+    endZoneIndices = self.fullMapToZoneIndex(self.es, zoneIndices)
 
     # If the head can't reach any end
     if np.intersect1d(endZoneIndices, headZoneIndices).size == 0:
@@ -196,3 +183,12 @@ class ProblemDefinition(AbstractProblemDefinition):
     nextStates.sort(key=lambda x: self.evalRemaining(x))
 
     return nextStates
+  
+  def fullMapToZoneIndex(self, indices, zoneIndices):
+    multiIndexOnFullMap = np.repeat(indices[:,np.newaxis,:], 4, axis=1)
+    multiIndexOnFullMap += [[-1, -1], [-1, 1], [1, -1], [1, 1]]
+    multiIndexOnFullMap = multiIndexOnFullMap.reshape((-1, 2))
+    multiIndexOnFullMapCorrectMask = np.all([multiIndexOnFullMap < self.starting.shape, multiIndexOnFullMap >= 0], (0, 2))
+    multiIndexOnFullMap = multiIndexOnFullMap[multiIndexOnFullMapCorrectMask]
+    multiHeadIndexOnZoneMap = (multiIndexOnFullMap / 2).astype(np.int64)
+    return zoneIndices[tuple(multiHeadIndexOnZoneMap.T)]
