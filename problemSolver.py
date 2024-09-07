@@ -1,9 +1,9 @@
-from problemTypes.squareColorAndPairSquares.SquareColorAndPairSquaresProblem import ProblemDefinition
+from problemTypes.spikesSquareAndGeo.spikesSquareAndGeoProblem import ProblemDefinition
 from utils import arrayToPrintable, arrayToTuple, fileToArray, arrayToDebug
 from collections import deque
 import time
 
-array = fileToArray("problemTypes/squareColorAndPairSquares/maps/actual8.txt")
+array = fileToArray("problemTypes/spikesSquareAndGeo/maps/actual8.txt")
 problem = ProblemDefinition(array)
 stateQueue = deque(problem.getStarting())
 satisfiedState = None
