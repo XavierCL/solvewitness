@@ -6,11 +6,23 @@ from utils import s2c, shift, arrayToDebug
 class ProblemDefinition(AbstractProblemDefinition):
   def __init__(self, starting: np.ndarray):
     self.starting = starting
-    self.spikes = np.array([starting[slice(1,-1,2),slice(1,-1,2)] == s2c(l) for l in ['z', 'y', 'x']])
-    self.spikeColorPairMasks = np.array([starting[slice(1,-1,2),slice(1,-1,2)] == s2c(l) for l in ['b']])
-    self.squareColors = np.array([starting[slice(1,-1,2),slice(1,-1,2)] == s2c(l) for l in ['o', 'b', 'v']])
-    self.es = np.argwhere(starting == s2c('e'))
+    middleSquares = starting[slice(1,-1,2),slice(1,-1,2)]
+    self.spikes = np.array([middleSquares == l for l in globalSpikes])
+    self.squareColors = np.array([middleSquares == l for l in globalSquares])
     self.esMask = starting == s2c('e')
+    self.es = np.argwhere(self.esMask)
+    self.geos = {s2c(geo[0]): self.buildGeo(geo) for geo in globalGeoStore}
+    self.onlyGeos = middleSquares
+    self.onlyGeos[~np.isin(middleSquares, list(self.geos.keys()))] = 0
+
+    self.spikeColorPairMasks = np.copy(self.squareColors)
+
+    for geoDefinition in globalGeoStore:
+      if geoDefinition[1] == 0:
+        continue
+
+      spikeIndex = np.argwhere(globalSpikes == s2c(geoDefinition[1]))[0][0]
+      self.spikeColorPairMasks[spikeIndex] = np.any([self.spikeColorPairMasks[spikeIndex], self.onlyGeos == s2c(geoDefinition[0])], 0)
 
   def getStarting(self):
     startingMask = self.starting == s2c('s')
@@ -142,11 +154,13 @@ class ProblemDefinition(AbstractProblemDefinition):
   def isZoneSatisfied(self, zoneIndices, zoneIndex):
     zoneMask = (zoneIndices == zoneIndex)
 
+    # Square handling
     squareColorsMask = np.all([self.squareColors, np.repeat(zoneMask[np.newaxis,:,:], self.squareColors.shape[0], axis=0)], 0)
 
     if np.count_nonzero(np.any(squareColorsMask, axis=(1, 2))) > 1:
       return False
 
+    # Spike handling
     spikesMask = np.all([self.spikes, np.repeat(zoneMask[np.newaxis,:,:], self.spikes.shape[0], axis=0)], 0)
     spikesCount = np.count_nonzero(spikesMask, axis=(1, 2))
 
@@ -155,10 +169,84 @@ class ProblemDefinition(AbstractProblemDefinition):
 
     totalSpikeCounts = spikesCount + spikeColorPairCount
 
-    if np.any(np.all([spikesCount > 0, totalSpikeCounts != 0, totalSpikeCounts != 2], 0)):
+    if np.any(np.all([spikesCount > 0, totalSpikeCounts != 2], 0)):
       return False
     
+    # Geo
+    zonedGeosInMap = np.copy(self.onlyGeos)
+    zonedGeosInMap[~zoneMask] = 0
+    zonedGeos = zonedGeosInMap[zonedGeosInMap != 0]
+    zonedGeos = [self.geos[geoChar] for geoChar in zonedGeos]
+
+    if len(zonedGeos) > 0:
+
+      nonRotatedZonedGeos = [z[0] for z in zonedGeos]
+
+      if np.count_nonzero(zoneMask) != np.count_nonzero(nonRotatedZonedGeos):
+        return False
+      
+      if not self.recursiveCanPlaceAllGeos(zoneMask, zonedGeos):
+        return False
+    
     return True
+  
+  def recursiveCanPlaceAllGeos(self, zoneMaskLeft, geosLeftToPlace):
+    if len(geosLeftToPlace) == 1:
+      return len(self.getConfigurations(zoneMaskLeft, geosLeftToPlace[0], earlyReturn=True)) > 0
+    
+    geoConfigurations = []
+
+    for geo in geosLeftToPlace:
+      configurations = self.getConfigurations(zoneMaskLeft, geo, earlyReturn=False)
+      if len(configurations) == 0:
+        return False
+      
+      geoConfigurations.append((configurations, geo))
+
+    geoConfigurations.sort(key=lambda x: len(x[0]))
+
+    newRemainingGeos = [x[1] for x in geoConfigurations[1:]]
+    
+    for geoConfiguration in geoConfigurations[0][0]:
+      newZoneMask = np.all([zoneMaskLeft, ~geoConfiguration], 0)
+      if self.recursiveCanPlaceAllGeos(newZoneMask, newRemainingGeos):
+        return True
+      
+    return False
+  
+  def getConfigurations(self, zoneMask, geo, earlyReturn):
+    whereZoneMask = np.argwhere(zoneMask)
+    topZoneMask = np.min(whereZoneMask[:,0])
+    bottomZoneMask = np.max(whereZoneMask[:,0]) + 1
+    leftZoneMask = np.min(whereZoneMask[:,1])
+    rightZoneMask = np.max(whereZoneMask[:,1]) + 1
+    zoneMaskHeight = bottomZoneMask - topZoneMask
+    zoneMaskWidth = rightZoneMask - leftZoneMask
+
+    configurations = []
+
+    for angledGeo in geo:
+      whereGeo = np.argwhere(angledGeo)
+      topGeo = np.min(whereGeo[:,0])
+      bottomGeo = np.max(whereGeo[:,0]) + 1
+      leftGeo = np.min(whereGeo[:,1])
+      rightGeo = np.max(whereGeo[:,1]) + 1
+      geoHeight = bottomGeo - topGeo
+      geoWidth = rightGeo - leftGeo
+
+      if zoneMaskHeight < geoHeight or zoneMaskWidth < geoWidth:
+        continue
+      
+      for topY in range(topZoneMask, bottomZoneMask - geoHeight + 1):
+        for leftX in range(leftZoneMask, rightZoneMask - geoWidth + 1):
+          shiftedAngledGeo = shift(angledGeo, (topY, leftX), (0, 1), 0)
+          if np.all(np.all([shiftedAngledGeo, zoneMask], 0) == shiftedAngledGeo):
+            configurations.append(shiftedAngledGeo)
+
+            if earlyReturn:
+              return np.array(configurations, dtype=np.bool)
+
+    return np.array(configurations, dtype=np.bool)
 
   def getSmallNexts(self, current):
     hMask = current == s2c('h')
@@ -192,3 +280,56 @@ class ProblemDefinition(AbstractProblemDefinition):
     multiIndexOnFullMap = multiIndexOnFullMap[multiIndexOnFullMapCorrectMask]
     multiHeadIndexOnZoneMap = (multiIndexOnFullMap / 2).astype(np.int64)
     return zoneIndices[tuple(multiHeadIndexOnZoneMap.T)]
+  
+  def buildGeo(self, geoDefinition):
+    (_char, _pairedSpike, rotate, array) = geoDefinition
+
+    array = np.array(array)
+    smallArrays = [array]
+
+    if rotate:
+      smallArrays = [
+        array,
+        np.flip(array, (0, 1)),
+        np.flip(array.T, (0,)),
+        np.flip(array.T, (1,)),
+      ]
+
+    squareShape = ((np.array(self.starting.shape) - 1) / 2).astype(np.int32)
+    smallArrays = [s for s in smallArrays if s.shape[0] <= squareShape[0] and s.shape[1] <= squareShape[1]]
+
+    bigArrays = [np.concatenate([np.concatenate([x, np.zeros((squareShape[0] - x.shape[0], x.shape[1]))], 0), np.zeros((squareShape[0], squareShape[1] - x.shape[1]))], 1) for x in smallArrays]
+
+    return bigArrays
+  
+# map letter, linked spike, rotatable, matrix definition
+globalGeoStore = [
+  (
+    'a',
+    'z',
+    False,
+    [
+      [True],
+      [True],
+      [True],
+    ]
+  ),(
+    'b',
+    0,
+    False,
+    [
+      [True, True, True],
+    ]
+  ),(
+    'c',
+    0,
+    False,
+    [
+      [True, True, True],
+      [False, False, True],
+    ]
+  )
+]
+
+globalSpikes = np.array([s2c(l) for l in ['z', 'y', 'x']])
+globalSquares = np.array([s2c(l) for l in ['l', 'm', 'n']])

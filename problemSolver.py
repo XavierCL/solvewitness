@@ -1,17 +1,24 @@
+from tqdm import tqdm
 from problemTypes.spikesSquareAndGeo.spikesSquareAndGeoProblem import ProblemDefinition
 from utils import arrayToPrintable, arrayToTuple, fileToArray, arrayToDebug
 from collections import deque
 import time
 
-array = fileToArray("problemTypes/spikesSquareAndGeo/maps/actual8.txt")
+array = fileToArray("problemTypes/spikesSquareAndGeo/maps/test3.txt")
 problem = ProblemDefinition(array)
 stateQueue = deque(problem.getStarting())
 satisfiedState = None
 steps = 0
 startTime = time.time()
 
-while len(stateQueue) > 0:
-  nextStateAttempt = stateQueue.popleft()
+def generator():
+  while len(stateQueue) > 0:
+    yield
+
+pbar = tqdm(generator())
+for _ in pbar:
+  pbar.set_description(f"Queue: {len(stateQueue)}")
+  nextStateAttempt = stateQueue.pop()
   possibleNextStates = problem.getNexts(nextStateAttempt)
 
   for possibleNextState in possibleNextStates:
@@ -23,7 +30,7 @@ while len(stateQueue) > 0:
   nextStates.reverse()
 
   for nextState in nextStates:
-    stateQueue.appendleft(nextState)
+    stateQueue.append(nextState)
 
   if satisfiedState is not None:
     break
