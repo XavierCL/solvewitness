@@ -1,3 +1,4 @@
+import numpy as np
 from tqdm import tqdm
 from problemTypes.spikesSquareAndGeo.spikesSquareAndGeoProblem import ProblemDefinition
 from utils import arrayToPrintable, arrayToTuple, fileToArray, arrayToDebug
@@ -11,14 +12,26 @@ satisfiedState = None
 steps = 0
 startTime = time.time()
 
+def printQueue(index):
+  if len(stateQueue) <= index:
+    return ""
+  
+  return np.count_nonzero(stateQueue[index])
+
 def generator():
   while len(stateQueue) > 0:
     yield
 
 pbar = tqdm(generator())
 for _ in pbar:
-  pbar.set_description(f"Queue: {len(stateQueue)}")
+  if steps % 50 == 0:
+    pbar.set_description(f"Queue: {len(stateQueue)}, Path: {[printQueue(i) for i in range(0, 3)]}")
+
   nextStateAttempt = stateQueue.pop()
+
+  if steps % 1000 == 0:
+    print("\n", "\n".join(arrayToDebug(nextStateAttempt)))
+
   possibleNextStates = problem.getNexts(nextStateAttempt)
 
   for possibleNextState in possibleNextStates:

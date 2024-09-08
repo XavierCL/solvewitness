@@ -113,9 +113,10 @@ class ProblemDefinition(AbstractProblemDefinition):
     # If the zones out of head reach are unsatisfied
     for satisfiableZoneIndex in range(np.max(zoneIndices) + 1):
       if np.any(headZoneIndices == satisfiableZoneIndex):
-        continue
+        if self.isPendingZoneUnsatisfiable(zoneIndices, satisfiableZoneIndex):
+          return True
 
-      if not self.isZoneSatisfied(zoneIndices, satisfiableZoneIndex):
+      elif not self.isZoneSatisfied(zoneIndices, satisfiableZoneIndex):
         return True
 
     return False
@@ -189,6 +190,37 @@ class ProblemDefinition(AbstractProblemDefinition):
         return False
     
     return True
+  
+  def isPendingZoneUnsatisfiable(self, zoneIndices, zoneIndex):
+    zoneMask = (zoneIndices == zoneIndex)
+
+    # Squares are always eventually satisfiable
+    # Spikes need to be in pairs
+    spikesMask = np.all([self.spikes, np.repeat(zoneMask[np.newaxis,:,:], self.spikes.shape[0], axis=0)], 0)
+    spikesCount = np.count_nonzero(spikesMask, axis=(1, 2))
+
+    spikeColorPairMask = np.all([self.spikeColorPairMasks, np.repeat(zoneMask[np.newaxis,:,:], self.spikeColorPairMasks.shape[0], axis=0)], 0)
+    spikeColorPairCount = np.count_nonzero(spikeColorPairMask, axis=(1, 2))
+
+    totalSpikeCounts = spikesCount + spikeColorPairCount
+
+    if np.any(np.all([spikesCount > 0, totalSpikeCounts % 2 == 1], 0)):
+      return True
+    
+    # Geos need to have a minimum of space
+    zonedGeosInMap = np.copy(self.onlyGeos)
+    zonedGeosInMap[~zoneMask] = 0
+    zonedGeos = zonedGeosInMap[zonedGeosInMap != 0]
+    zonedGeos = [self.geos[geoChar] for geoChar in zonedGeos]
+
+    if len(zonedGeos) > 0:
+
+      nonRotatedZonedGeos = [z[0] for z in zonedGeos]
+
+      if np.count_nonzero(zoneMask) < np.count_nonzero(nonRotatedZonedGeos):
+        return True
+      
+    return False
   
   def recursiveCanPlaceAllGeos(self, zoneMaskLeft, geosLeftToPlace):
     if len(geosLeftToPlace) == 1:
