@@ -5,7 +5,7 @@ from utils import arrayToPrintable, arrayToTuple, fileToArray, arrayToDebug
 from collections import deque
 import time
 
-array = fileToArray("problemTypes/spikesSquareAndGeo/maps/test3.txt")
+array = fileToArray("problemTypes/spikesSquareAndGeo/maps/actual16.txt")
 problem = ProblemDefinition(array)
 stateQueue = deque(problem.getStarting())
 satisfiedState = None
@@ -30,7 +30,8 @@ for _ in pbar:
   nextStateAttempt = stateQueue.pop()
 
   if steps % 1000 == 0:
-    print("\n", "\n".join(arrayToDebug(nextStateAttempt)))
+    debugArray = '\n'.join(arrayToDebug(nextStateAttempt))
+    print(f"\n{debugArray}")
 
   possibleNextStates = problem.getNexts(nextStateAttempt)
 

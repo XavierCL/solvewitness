@@ -14,11 +14,6 @@ class ProblemDefinition(AbstractProblemDefinition):
     self.geos = {s2c(geo[0]): self.buildGeo(geo) for geo in globalGeoStore}
     self.onlyGeos = middleSquares
     self.onlyGeos[~np.isin(middleSquares, list(self.geos.keys()))] = 0
-    self.points = np.array([starting == l for l in globalPoints])
-    self.verticalPaths = np.concatenate([[s2c(l) for l in ['+','|','e']], globalPoints])
-    self.horizontalPaths = np.concatenate([[s2c(l) for l in ['+','-','e']], globalPoints])
-    self.walkablePaths = np.unique(np.concatenate([self.verticalPaths, self.horizontalPaths]))
-    self.multiPaths = np.concatenate([[s2c(l) for l in ['+', 'e']], globalPoints])
 
     self.spikeColorPairMasks = np.copy(self.squareColors)
 
@@ -29,7 +24,17 @@ class ProblemDefinition(AbstractProblemDefinition):
       spikeIndex = np.argwhere(globalSpikes == s2c(geoDefinition[1]))[0][0]
       self.spikeColorPairMasks[spikeIndex] = np.any([self.spikeColorPairMasks[spikeIndex], self.onlyGeos == s2c(geoDefinition[0])], 0)
 
-  # todo To support mishaps, just convert the mishap to a new spike with all other items
+  # To support mishaps, just convert the mishap to a new spike with all other items
+  # To make the computation faster, prebuild all possible geo arangements, called mandatory lines
+  # Also add neighbouring color squares to those mandatory lines
+  # Also create negative mandatory lines, where no line can ever pass
+  # Also create mandatory points on points
+  # For each possible set of mandatory lines, make sure they are not unsatisfiable
+  # Unsatisfiability includes impossible path crossings, X shape future paths are impossible
+    # How to detect Xs? Only the next bordering mandatory line or a middle mandatory line are allowed
+  # Run the brute force for each combination of paths.
+  # Add to the unsatisfiability that each pair of line must be reachable after every move.
+  # Sort the next states by distance to the next mandatory line instead of the end
   def getStarting(self):
     startingMask = self.starting == s2c('s')
     fakeStarter = np.zeros_like(self.starting)
@@ -57,17 +62,17 @@ class ProblemDefinition(AbstractProblemDefinition):
     nextStates = []
 
     nextMultiHMasks = [
-      np.all([shift(hMask, (1,), (0,), 0), hToP != s2c('p'), np.isin(self.starting, self.verticalPaths)], 0),
-      np.all([shift(hMask, (1,), (1,), 0), hToP != s2c('p'), np.isin(self.starting, self.horizontalPaths)], 0),
-      np.all([shift(hMask, (-1,), (0,), 0), hToP != s2c('p'), np.isin(self.starting, self.verticalPaths)], 0),
-      np.all([shift(hMask, (-1,), (1,), 0), hToP != s2c('p'), np.isin(self.starting, self.horizontalPaths)], 0)
+      np.all([shift(hMask, (1,), (0,), 0), hToP != s2c('p'), np.any([self.starting == s2c('+'), self.starting == s2c('|'), self.starting == s2c('e')], 0)], 0),
+      np.all([shift(hMask, (1,), (1,), 0), hToP != s2c('p'), np.any([self.starting == s2c('+'), self.starting == s2c('-'), self.starting == s2c('e')], 0)], 0),
+      np.all([shift(hMask, (-1,), (0,), 0), hToP != s2c('p'), np.any([self.starting == s2c('+'), self.starting == s2c('|'), self.starting == s2c('e')], 0)], 0),
+      np.all([shift(hMask, (-1,), (1,), 0), hToP != s2c('p'), np.any([self.starting == s2c('+'), self.starting == s2c('-'), self.starting == s2c('e')], 0)], 0)
     ]
 
     next2MultiHMasks = [
-      np.all([shift(hMask, (2,), (0,), 0), hToP != s2c('p'), np.isin(self.starting, self.verticalPaths)], 0),
-      np.all([shift(hMask, (2,), (1,), 0), hToP != s2c('p'), np.isin(self.starting, self.horizontalPaths)], 0),
-      np.all([shift(hMask, (-2,), (0,), 0), hToP != s2c('p'), np.isin(self.starting, self.verticalPaths)], 0),
-      np.all([shift(hMask, (-2,), (1,), 0), hToP != s2c('p'), np.isin(self.starting, self.horizontalPaths)], 0)
+      np.all([shift(hMask, (2,), (0,), 0), hToP != s2c('p'), np.any([self.starting == s2c('+'), self.starting == s2c('|'), self.starting == s2c('e')], 0)], 0),
+      np.all([shift(hMask, (2,), (1,), 0), hToP != s2c('p'), np.any([self.starting == s2c('+'), self.starting == s2c('-'), self.starting == s2c('e')], 0)], 0),
+      np.all([shift(hMask, (-2,), (0,), 0), hToP != s2c('p'), np.any([self.starting == s2c('+'), self.starting == s2c('|'), self.starting == s2c('e')], 0)], 0),
+      np.all([shift(hMask, (-2,), (1,), 0), hToP != s2c('p'), np.any([self.starting == s2c('+'), self.starting == s2c('-'), self.starting == s2c('e')], 0)], 0)
     ]
 
     for nextMultiHMask, next2MultiHMask in zip(nextMultiHMasks, next2MultiHMasks):
@@ -84,11 +89,7 @@ class ProblemDefinition(AbstractProblemDefinition):
     return nextStates
 
   def isSatisfied(self, current):
-    pathMask = np.any([current == s2c('h'), current == s2c('p')], 0)
-    if not np.any(np.all([pathMask, self.esMask], 0)):
-      return False
-    
-    if np.count_nonzero(np.all([np.any(self.points, 0), ~pathMask], 0)) > 0:
+    if not np.any(np.all([np.any([current == s2c('h'), current == s2c('p')], 0), self.esMask], 0)):
       return False
 
     zoneIndices = self.getZoneIndices(current)
@@ -107,7 +108,7 @@ class ProblemDefinition(AbstractProblemDefinition):
     
     # If the head can't go nowhere
     headMask = current == s2c('h')
-    walkablePaths = np.all([~pathMask, np.isin(self.starting, self.walkablePaths)], 0)
+    walkablePaths = np.all([~pathMask, np.any([self.starting == s2c('|'), self.starting == s2c('-'), self.starting == s2c('+'), self.starting == s2c('e')], 0)], 0)
     nextSteps = np.any([shift(headMask, (1,), (0,), 0),shift(headMask, (-1,), (0,), 0), shift(headMask, (1,), (1,), 0), shift(headMask, (-1,), (1,), 0)], 0)
     if not np.any(np.all([nextSteps, walkablePaths], 0)):
       return True
@@ -120,7 +121,6 @@ class ProblemDefinition(AbstractProblemDefinition):
     if np.intersect1d(endZoneIndices, headZoneIndices).size == 0:
       return True
     
-    # todo out of reach can be computed better with non reachable zones, making it a half closed zone
     # If the zones out of head reach are unsatisfied
     for satisfiableZoneIndex in range(np.max(zoneIndices) + 1):
       if np.any(headZoneIndices == satisfiableZoneIndex):
@@ -131,7 +131,7 @@ class ProblemDefinition(AbstractProblemDefinition):
         return True
 
     return False
-
+  
   def evalRemaining(self, current):
     hPos = np.argwhere(current == s2c('h'))[0]
     return int(np.min(np.sum(np.abs(self.es - hPos), axis=1)))
@@ -163,7 +163,6 @@ class ProblemDefinition(AbstractProblemDefinition):
 
     return zoneIndices
     
-  # todo check if there are points left in the zone
   def isZoneSatisfied(self, zoneIndices, zoneIndex):
     zoneMask = (zoneIndices == zoneIndex)
 
@@ -207,7 +206,6 @@ class ProblemDefinition(AbstractProblemDefinition):
     zoneMask = (zoneIndices == zoneIndex)
 
     # Squares are always eventually satisfiable
-
     # Spikes need to be in pairs
     spikesMask = np.all([self.spikes, np.repeat(zoneMask[np.newaxis,:,:], self.spikes.shape[0], axis=0)], 0)
     spikesCount = np.count_nonzero(spikesMask, axis=(1, 2))
@@ -232,8 +230,6 @@ class ProblemDefinition(AbstractProblemDefinition):
 
       if np.count_nonzero(zoneMask) < np.count_nonzero(nonRotatedZonedGeos):
         return True
-      
-      # todo a pending zone also has a minimum size, the 1d bordering line far from the puzzle border
       
     return False
   
@@ -301,10 +297,10 @@ class ProblemDefinition(AbstractProblemDefinition):
     nextStates = []
 
     nextMultiHMasks = [
-      np.all([shift(hMask, (1,), (0,), 0), hToP != s2c('p'), np.isin(self.starting, self.multiPaths)], 0),
-      np.all([shift(hMask, (1,), (1,), 0), hToP != s2c('p'), np.isin(self.starting, self.multiPaths)], 0),
-      np.all([shift(hMask, (-1,), (0,), 0), hToP != s2c('p'), np.isin(self.starting, self.multiPaths)], 0),
-      np.all([shift(hMask, (-1,), (1,), 0), hToP != s2c('p'), np.isin(self.starting, self.multiPaths)], 0)
+      np.all([shift(hMask, (1,), (0,), 0), hToP != s2c('p'), np.any([self.starting == s2c('+'), self.starting == s2c('e')], 0)], 0),
+      np.all([shift(hMask, (1,), (1,), 0), hToP != s2c('p'), np.any([self.starting == s2c('+'), self.starting == s2c('e')], 0)], 0),
+      np.all([shift(hMask, (-1,), (0,), 0), hToP != s2c('p'), np.any([self.starting == s2c('+'), self.starting == s2c('e')], 0)], 0),
+      np.all([shift(hMask, (-1,), (1,), 0), hToP != s2c('p'), np.any([self.starting == s2c('+'), self.starting == s2c('e')], 0)], 0)
     ]
 
     for nextMultiHMask in nextMultiHMasks:
@@ -328,6 +324,7 @@ class ProblemDefinition(AbstractProblemDefinition):
     multiHeadIndexOnZoneMap = (multiIndexOnFullMap / 2).astype(np.int64)
     return zoneIndices[tuple(multiHeadIndexOnZoneMap.T)]
   
+  # Discard duplicated rotations
   def buildGeo(self, geoDefinition):
     (_char, _pairedSpike, rotate, array) = geoDefinition
 
@@ -345,31 +342,52 @@ class ProblemDefinition(AbstractProblemDefinition):
     squareShape = ((np.array(self.starting.shape) - 1) / 2).astype(np.int32)
     smallArrays = [s for s in smallArrays if s.shape[0] <= squareShape[0] and s.shape[1] <= squareShape[1]]
 
-    bigArrays = np.array([np.concatenate([np.concatenate([x, np.zeros((squareShape[0] - x.shape[0], x.shape[1]))], 0), np.zeros((squareShape[0], squareShape[1] - x.shape[1]))], 1) for x in smallArrays])
+    bigArrays = [np.concatenate([np.concatenate([x, np.zeros((squareShape[0] - x.shape[0], x.shape[1]))], 0), np.zeros((squareShape[0], squareShape[1] - x.shape[1]))], 1) for x in smallArrays]
 
-    keptBigArrays = np.ones((bigArrays.shape[0]), dtype=np.bool)
-    
-    for dupeCandidateIndex in range(1, len(keptBigArrays)):
-      for previousCandidate in range(0, dupeCandidateIndex):
-        if np.all(bigArrays[dupeCandidateIndex] == bigArrays[previousCandidate]):
-          keptBigArrays[dupeCandidateIndex] = False
-          break
-
-    return bigArrays[keptBigArrays]
+    return bigArrays
   
 # map letter, linked spike, rotatable, matrix definition
 globalGeoStore = [
   (
     'a',
-    0,
-    True,
+    'z',
+    False,
     [
-      [True, False],
+      [True],
+      [True],
+      [True],
+    ]
+  ),(
+    'b',
+    0,
+    False,
+    [
+      [True, True, True],
+    ]
+  ),(
+    'c',
+    0,
+    False,
+    [
+      [True, True, True],
+      [False, False, True],
+    ]
+  ),(
+    'd',
+    0,
+    False,
+    [
+      [True],
+    ]
+  ),(
+    'f',
+    0,
+    False,
+    [
       [True, True],
     ]
-  ),
+  )
 ]
 
-globalSpikes = np.array([s2c(l) for l in ['z', 'y', 'x', 'w']])
-globalSquares = np.array([s2c(l) for l in ['l', 'm', 'n', 'q']])
-globalPoints = np.array([s2c(l) for l in ['t']])
+globalSpikes = np.array([s2c(l) for l in ['z', 'y', 'x']])
+globalSquares = np.array([s2c(l) for l in ['l', 'm', 'n']])
