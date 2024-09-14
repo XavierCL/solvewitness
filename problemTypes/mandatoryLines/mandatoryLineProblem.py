@@ -41,7 +41,7 @@ class ProblemDefinition(AbstractProblemDefinition):
     for largestGroupSize in range(geoCount, 0, -1):
       groupCombinations += self.recursiveBuildGroupCombination(list(range(geoCount)), largestGroupSize)
 
-    print(groupCombinations)
+    print("Possible combinations:", len(groupCombinations))
 
   def recursiveBuildGroupCombination(self, remainingToPlace, largestGroupSize):
     if largestGroupSize > len(remainingToPlace):
