@@ -364,10 +364,29 @@ globalGeoStore = [
     0,
     True,
     [
-      [True, False],
+      [True],
+      [True],
+      [True],
+      [True],
+    ]
+  ),(
+    'c',
+    0,
+    True,
+    [
+      [False, True],
+      [False, True],
       [True, True],
     ]
-  ),
+  ),(
+    'b',
+    0,
+    True,
+    [
+      [True, True],
+      [False, True],
+    ]
+  )
 ]
 
 globalSpikes = np.array([s2c(l) for l in ['z', 'y', 'x', 'w']])
