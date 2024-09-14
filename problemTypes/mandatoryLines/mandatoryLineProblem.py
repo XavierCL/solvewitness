@@ -6,14 +6,15 @@ from utils import s2c, shift, arrayToDebug
 class ProblemDefinition(AbstractProblemDefinition):
   def __init__(self, starting: np.ndarray):
     self.starting = starting
-    middleSquares = starting[slice(1,-1,2),slice(1,-1,2)]
-    self.spikes = np.array([middleSquares == l for l in globalSpikes])
-    self.squareColors = np.array([middleSquares == l for l in globalSquares])
+    self.middleSquares = starting[slice(1,-1,2),slice(1,-1,2)]
+    self.spikes = np.array([self.middleSquares == l for l in globalSpikes])
+    self.squareColors = np.array([self.middleSquares == l for l in globalSquares])
     self.esMask = starting == s2c('e')
     self.es = np.argwhere(self.esMask)
     self.geos = {s2c(geo[0]): self.buildGeo(geo) for geo in globalGeoStore}
-    self.onlyGeos = middleSquares
-    self.onlyGeos[~np.isin(middleSquares, list(self.geos.keys()))] = 0
+    self.onlyGeos = np.copy(self.middleSquares)
+    self.onlyGeos[~np.isin(self.middleSquares, list(self.geos.keys()))] = 0
+    self.orderedGeos = [(self.onlyGeos[a], a) for a in np.argwhere(self.onlyGeos != 0)]
 
     self.spikeColorPairMasks = np.copy(self.squareColors)
 
@@ -42,6 +43,10 @@ class ProblemDefinition(AbstractProblemDefinition):
       groupCombinations += self.recursiveBuildGroupCombination(list(range(geoCount)), largestGroupSize)
 
     print("Possible combinations:", len(groupCombinations))
+
+    possibleInclusiveGeos = []
+    for groupCombination in groupCombinations:
+      possibleInclusiveGeos += self.buildInclusiveGeos(groupCombination)
 
   def recursiveBuildGroupCombination(self, remainingToPlace, largestGroupSize):
     if largestGroupSize > len(remainingToPlace):
@@ -102,6 +107,100 @@ class ProblemDefinition(AbstractProblemDefinition):
     groups.append((itemArray[selectionMask].tolist(), itemArray[~selectionMask].tolist()))
 
     return groups
+  
+  def buildInclusiveGeos(self, geoCombination):
+    starting = self.recursiveBuildSingleInclusiveGeo(np.zeros_like(self.middleSquares, dtype=np.bool), np.ones_like(self.middleSquares, dtype=np.bool), np.zeros_like(self.middleSquares, dtype=np.bool), geoCombination[0], geoCombination[0])
+    previous = []
+
+    for geoCombinationIndex in range(1, len(geoCombination)):
+      previouses = starting
+      starting = []
+      for previous in previouses:
+        mustNotTouch = np.all([np.any([
+          previous,
+          shift(previous, (1, 0), (0, 1), 0),
+          shift(previous, (0, 1), (0, 1), 0),
+          shift(previous, (0, -1), (0, 1), 0),
+          shift(previous, (-1, 0), (0, 1), 0)
+        ], 0)])
+
+        if np.all(mustNotTouch):
+          continue
+
+        newPartialInclusives = self.recursiveBuildSingleInclusiveGeo(np.zeros_like(self.middleSquares, dtype=np.bool), np.ones_like(self.middleSquares, dtype=np.bool), mustNotTouch, geoCombination[geoCombinationIndex], geoCombination[geoCombinationIndex])
+
+        for newPartialInclusive in newPartialInclusives:
+          starting.append(np.any([previous, newPartialInclusive], 0))
+
+    return starting
+    
+  def recursiveBuildSingleInclusiveGeo(self, partialInclusiveGeo, mustTouchOneOf, mustNotTouch, remainingGeosToPlace, remainingGeosToTouch):
+    if not np.any(np.all([mustTouchOneOf, ~mustNotTouch], 0)):
+      return []
+    
+    if len(remainingGeosToPlace) > np.count_nonzero(remainingGeosToTouch):
+      return []
+    
+    if len(remainingGeosToPlace) == 0:
+      return [partialInclusiveGeo]
+    
+    inclusiveGeos = []
+    attemptedGeo = set()
+
+    for geoToPlaceIndex in range(len(remainingGeosToPlace)):
+      remainingGeosToPlaceCopy = list(remainingGeosToPlace)
+      geoToPlace = remainingGeosToPlaceCopy[geoToPlaceIndex]
+      del remainingGeosToPlaceCopy[geoToPlaceIndex]
+
+      if self.orderedGeos[geoToPlace][0] in attemptedGeo:
+        continue
+
+      attemptedGeo.add(self.orderedGeos[geoToPlace])
+
+      placements = self.getGeoPlacements(geoToPlace, mustTouchOneOf, mustNotTouch, remainingGeosToTouch)
+
+      for placement in placements:
+        newPartialInclusiveGeo = np.any([partialInclusiveGeo, placement], 0)
+        newMustNotTouch = np.any([mustNotTouch, newPartialInclusiveGeo], 0)
+        newMustTouchOneOf = np.all([np.any([
+          shift(newPartialInclusiveGeo, (1, 0), (0, 1), 0),
+          shift(newPartialInclusiveGeo, (0, 1), (0, 1), 0),
+          shift(newPartialInclusiveGeo, (0, -1), (0, 1), 0),
+          shift(newPartialInclusiveGeo, (-1, 0), (0, 1), 0)
+        ], 0), ~newMustNotTouch])
+
+        if not np.any(newMustTouchOneOf):
+          continue
+
+        newRemainingGeosToTouch = np.all([remainingGeosToTouch, ~newPartialInclusiveGeo])
+
+        inclusiveGeos += self.recursiveBuildSingleInclusiveGeo(newPartialInclusiveGeo, newMustTouchOneOf, newMustNotTouch, remainingGeosToPlaceCopy, newRemainingGeosToTouch)
+
+  def getGeoPlacements(self, geoToPlace, mustTouchOneOf, mustNotTouch, remainingGeosToTouch):
+    geos = self.geos[self.orderedGeos[geoToPlace][1]]
+    todo [(xMin, xMax) for geo in geos for geoToTouch in remainingGeosToTouch]
+    xBounds = [() for geo in geos]
+    yBounds = [() for geo in geos]
+    placements = []
+    for geoIndex in range(len(geos)):
+      for xDisplacement in range(xBounds[geoIndex][0], xBounds[geoIndex][1], 1):
+        for yDisplacement in range(yBounds[geoIndex][0], yBounds[geoIndex][1], 1):
+          tentativeGeoPlacement = shift(geos[geoIndex], (xDisplacement, yDisplacement), (0, 1), 0)
+
+          if np.any(np.all([tentativeGeoPlacement, mustNotTouch], 0)):
+            continue
+
+          if not np.any(np.all([mustTouchOneOf], 0)):
+            continue
+
+          if np.max(remainingGeosToTouch) != 0 and not np.any(np.all([tentativeGeoPlacement, remainingGeosToTouch], 0)):
+            continue
+
+          placements.append(tentativeGeoPlacement)
+
+    unicite placements before continuing
+
+    return placements
 
   def getNexts(self, current):
     pass
@@ -115,7 +214,6 @@ class ProblemDefinition(AbstractProblemDefinition):
   def evalRemaining(self, current):
     pass
   
-  # Discard duplicated rotations
   def buildGeo(self, geoDefinition):
     (_char, _pairedSpike, rotate, array) = geoDefinition
 
@@ -133,9 +231,17 @@ class ProblemDefinition(AbstractProblemDefinition):
     squareShape = ((np.array(self.starting.shape) - 1) / 2).astype(np.int32)
     smallArrays = [s for s in smallArrays if s.shape[0] <= squareShape[0] and s.shape[1] <= squareShape[1]]
 
-    bigArrays = [np.concatenate([np.concatenate([x, np.zeros((squareShape[0] - x.shape[0], x.shape[1]))], 0), np.zeros((squareShape[0], squareShape[1] - x.shape[1]))], 1) for x in smallArrays]
+    bigArrays = np.array([np.concatenate([np.concatenate([x, np.zeros((squareShape[0] - x.shape[0], x.shape[1]))], 0), np.zeros((squareShape[0], squareShape[1] - x.shape[1]))], 1) for x in smallArrays])
 
-    return bigArrays
+    keptBigArrays = np.ones((bigArrays.shape[0]), dtype=np.bool)
+    
+    for dupeCandidateIndex in range(1, len(keptBigArrays)):
+      for previousCandidate in range(0, dupeCandidateIndex):
+        if np.all(bigArrays[dupeCandidateIndex] == bigArrays[previousCandidate]):
+          keptBigArrays[dupeCandidateIndex] = False
+          break
+
+    return bigArrays[keptBigArrays]
   
 # map letter, linked spike, rotatable, matrix definition
 globalGeoStore = [
