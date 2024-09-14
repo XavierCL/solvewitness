@@ -37,7 +37,6 @@ class ProblemDefinition(AbstractProblemDefinition):
   # Sort the next states by distance to the next mandatory line instead of the end
   def getStarting(self):
     geoCount = np.count_nonzero(self.onlyGeos)
-    groupRange = list(range(np.count_nonzero(self.onlyGeos)))
     groupCombinations = []
     for largestGroupSize in range(geoCount, 0, -1):
       groupCombinations += self.recursiveBuildGroupCombination(list(range(geoCount)), largestGroupSize)
@@ -48,28 +47,59 @@ class ProblemDefinition(AbstractProblemDefinition):
     if largestGroupSize > len(remainingToPlace):
       return []
     
-    groupsWithAtLeastOneOfSize = self.recursiveBuildSingleGroup([], largestGroupSize, remainingToPlace)
+    if largestGroupSize == 1:
+      return [[[i] for i in remainingToPlace]]
+    
+    groupsWithAtLeastOneOfSize = self.buildSingleGroups(largestGroupSize, remainingToPlace)
 
     groups = []
 
     for (partialGroup, outOfPartialGroup) in groupsWithAtLeastOneOfSize:
-      for outOfPartialGroupSize in range(len(outOfPartialGroup), 0, -1):
+      if len(outOfPartialGroup) == 0:
+        groups.append([partialGroup])
+        continue
+
+      for outOfPartialGroupSize in range(min(len(outOfPartialGroup), largestGroupSize), 0, -1):
         restOfCombinations = self.recursiveBuildGroupCombination(outOfPartialGroup, outOfPartialGroupSize)
         for restOfCombination in restOfCombinations:
           groups.append([partialGroup] + restOfCombination)
 
     return groups
 
-  def recursiveBuildSingleGroup(self, startOfGroup, remainingGroupSize, remainingItems: list):
-    if remainingGroupSize == 0 or len(remainingItems) < remainingGroupSize:
-      return (startOfGroup, remainingItems)
-
+  def buildSingleGroups(self, groupSize, items: list):
+    if groupSize == 0:
+      return [([], items)]
+    
+    if len(items) < groupSize:
+      return []
+    
+    itemArray = np.array(items)
+    selectionIndices = np.array(list(range(groupSize)))
+    onesLikeItems = np.zeros_like(itemArray, dtype=np.bool)
     groups = []
-    for remainingIndex in range(remainingItems):
-      addedItem = remainingItems[remainingItems]
-      remainingCopy = list(remainingItems)
-      del remainingCopy[0:remainingIndex + 1]
-      groups += self.recursiveBuildSingleGroup(startOfGroup + [addedItem], remainingGroupSize - 1, remainingCopy)
+
+    while len(items) - selectionIndices[0] > groupSize:
+      # Add next group
+      selectionMask = np.copy(onesLikeItems)
+      selectionMask[selectionIndices] = True
+      groups.append((itemArray[selectionMask].tolist(), itemArray[~selectionMask].tolist()))
+
+      # Increase selection index
+      for attemptIncrement in range(len(selectionIndices) - 1, -1, -1):
+        if len(items) - selectionIndices[attemptIncrement] <= len(selectionIndices) - attemptIncrement:
+          continue
+
+        baseValue = selectionIndices[attemptIncrement]
+
+        for counter, increment in enumerate(range(attemptIncrement, len(selectionIndices))):
+          selectionIndices[increment] = baseValue + counter + 1
+
+        break
+
+    # Add last group
+    selectionMask = np.copy(onesLikeItems)
+    selectionMask[selectionIndices] = True
+    groups.append((itemArray[selectionMask].tolist(), itemArray[~selectionMask].tolist()))
 
     return groups
 
