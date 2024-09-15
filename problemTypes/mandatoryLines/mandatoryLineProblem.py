@@ -28,8 +28,8 @@ class ProblemDefinition(AbstractProblemDefinition):
     self.onlyGeos = np.copy(self.middleSquares)
     self.onlyGeos[~np.isin(self.middleSquares, list(self.geos.keys()))] = 0
     self.orderedGeos = [(self.onlyGeos[tuple(a)], a) for a in np.argwhere(self.onlyGeos != 0)]
-    self.verticalPaths = np.concatenate([[s2c(l) for l in ['+','|','e']], globalPoints])
-    self.horizontalPaths = np.concatenate([[s2c(l) for l in ['+','-','e']], globalPoints])
+    self.verticalPaths = np.concatenate([[s2c(l) for l in ['+','|','e','s']], globalPoints])
+    self.horizontalPaths = np.concatenate([[s2c(l) for l in ['+','-','e','s']], globalPoints])
     self.walkablePaths = np.unique(np.concatenate([self.verticalPaths, self.horizontalPaths]))
     self.walkableMask = np.isin(self.starting, self.walkablePaths)
 
@@ -42,18 +42,6 @@ class ProblemDefinition(AbstractProblemDefinition):
       spikeIndex = np.argwhere(globalSpikes == s2c(geoDefinition[1]))[0][0]
       self.spikeColorPairMasks[spikeIndex] = np.any([self.spikeColorPairMasks[spikeIndex], self.onlyGeos == s2c(geoDefinition[0])], 0)
 
-  # To support mishaps, just convert the mishap to a new spike with all other items
-  # To make the computation faster, prebuild all possible geo arangements, called mandatory lines
-  # Also add neighbouring color squares to those mandatory lines
-  # Also create negative mandatory lines, where no line can ever pass
-  # Also create mandatory points on points
-  # For each possible set of mandatory lines, make sure they are not unsatisfiable
-  # Unsatisfiability includes impossible path crossings, X shape future paths are impossible
-    # How to detect Xs? Only the next bordering mandatory line or a middle mandatory line are allowed
-  # Run the brute force for each combination of paths.
-  # Add to the unsatisfiability that each pair of line must be reachable after every move.
-  # Sort the next states by distance to the next mandatory line instead of the end
-  def getStarting(self):
     # Build group combinations
     geoCount = np.count_nonzero(self.onlyGeos)
     groupCombinations = []
@@ -71,11 +59,11 @@ class ProblemDefinition(AbstractProblemDefinition):
     print(np.any(possibleInclusiveGeos[0], 0))
 
     # Build geo mandatory lines
-    geoMandatoryLines = [self.inclusiveGeoToMandatoryLines(o) for o in possibleInclusiveGeos]
-    geoMandatoryLines = [o for o in geoMandatoryLines if o is not None]
+    self.geoMandatoryLines = [self.inclusiveGeoToMandatoryLines(o) for o in possibleInclusiveGeos]
+    self.geoMandatoryLines = np.array([o for o in self.geoMandatoryLines if o is not None])
 
-    print("Possible mandatory geo lines:", len(geoMandatoryLines))
-    print('\n'.join(arrayToDebug(np.where(geoMandatoryLines[0], s2c('p'), 0))))
+    print("Possible mandatory geo lines:", len(self.geoMandatoryLines))
+    print('\n'.join(arrayToDebug(np.where(self.geoMandatoryLines[0,0], s2c('p'), 0))))
 
   def recursiveBuildGroupCombination(self, remainingToPlace, largestGroupSize):
     if largestGroupSize > len(remainingToPlace):
@@ -262,21 +250,23 @@ class ProblemDefinition(AbstractProblemDefinition):
   # returns an np array on the starting map or None if impossible
   def inclusiveGeoToMandatoryLines(self, inclusiveGeos):
     mandatoryLines = np.zeros_like(self.starting, np.bool)
+    forbiddenLines = np.zeros_like(self.starting, np.bool)
     for inclusiveGeo in inclusiveGeos:
       geoMaskIndices = tuple(np.array(np.where(inclusiveGeo)) * 2 + 1)
-      attemptGeoLines = np.zeros_like(self.starting, np.bool)
-      attemptGeoLines[geoMaskIndices] = True
+      middleGeoLines = np.zeros_like(self.starting, np.bool)
+      middleGeoLines[geoMaskIndices] = True
       attemptGeoLines = np.all([np.any([
-        np.all([shift(attemptGeoLines, (1, 0), (0, 1), 0), ~shift(attemptGeoLines, (-1, 0), (0, 1), 0)], 0),
-        np.all([shift(attemptGeoLines, (-1, 0), (0, 1), 0), ~shift(attemptGeoLines, (1, 0), (0, 1), 0)], 0),
-        np.all([shift(attemptGeoLines, (0, 1), (0, 1), 0), ~shift(attemptGeoLines, (0, -1), (0, 1), 0)], 0),
-        np.all([shift(attemptGeoLines, (0, -1), (0, 1), 0), ~shift(attemptGeoLines, (0, 1), (0, 1), 0)], 0),
-        np.all([shift(attemptGeoLines, (1, 1), (0, 1), 0), ~shift(attemptGeoLines, (-1, -1), (0, 1), 0)], 0),
-        np.all([shift(attemptGeoLines, (1, -1), (0, 1), 0), ~shift(attemptGeoLines, (-1, 1), (0, 1), 0)], 0),
-        np.all([shift(attemptGeoLines, (-1, 1), (0, 1), 0), ~shift(attemptGeoLines, (1, -1), (0, 1), 0)], 0),
-        np.all([shift(attemptGeoLines, (-1, -1), (0, 1), 0), ~shift(attemptGeoLines, (1, 1), (0, 1), 0)], 0),
+        np.all([shift(middleGeoLines, (1, 0), (0, 1), 0), ~shift(middleGeoLines, (-1, 0), (0, 1), 0)], 0),
+        np.all([shift(middleGeoLines, (-1, 0), (0, 1), 0), ~shift(middleGeoLines, (1, 0), (0, 1), 0)], 0),
+        np.all([shift(middleGeoLines, (0, 1), (0, 1), 0), ~shift(middleGeoLines, (0, -1), (0, 1), 0)], 0),
+        np.all([shift(middleGeoLines, (0, -1), (0, 1), 0), ~shift(middleGeoLines, (0, 1), (0, 1), 0)], 0),
+        np.all([shift(middleGeoLines, (1, 1), (0, 1), 0), ~shift(middleGeoLines, (-1, -1), (0, 1), 0)], 0),
+        np.all([shift(middleGeoLines, (1, -1), (0, 1), 0), ~shift(middleGeoLines, (-1, 1), (0, 1), 0)], 0),
+        np.all([shift(middleGeoLines, (-1, 1), (0, 1), 0), ~shift(middleGeoLines, (1, -1), (0, 1), 0)], 0),
+        np.all([shift(middleGeoLines, (-1, -1), (0, 1), 0), ~shift(middleGeoLines, (1, 1), (0, 1), 0)], 0),
       ], 0), ~self.edgeMask], 0)
 
+      # Add the multipath on the edge of the geo line
       attemptGeoLines = np.any([attemptGeoLines, np.all([np.any([
         shift(attemptGeoLines, (1, 0), (0, 1), 0),
         shift(attemptGeoLines, (-1, 0), (0, 1), 0),
@@ -287,21 +277,305 @@ class ProblemDefinition(AbstractProblemDefinition):
       if np.any(np.all([attemptGeoLines, ~self.walkableMask], 0)):
         return None
       
+      attemptForbiddenLines = np.all([np.any([
+        shift(middleGeoLines, (1, 0), (0, 1), 0),
+        shift(middleGeoLines, (0, 1), (0, 1), 0),
+      ], 0), ~self.edgeMask, ~attemptGeoLines], 0)
+      
       mandatoryLines = np.any([mandatoryLines, attemptGeoLines], 0)
+      forbiddenLines = np.any([forbiddenLines, attemptForbiddenLines], 0)
 
-    return mandatoryLines
+    # Remove triple and quadruble links
+    multiPaths = np.zeros_like(self.starting, dtype=np.bool)
+    multiPaths[slice(0, multiPaths.shape[0], 2), slice(0, multiPaths.shape[1], 2)] = True
+    shiftedMandatoryMultiPaths = np.all([[
+      shift(multiPaths, (1, 0), (0, 1), 0),
+      shift(multiPaths, (-1, 0), (0, 1), 0),
+      shift(multiPaths, (0, 1), (0, 1), 0),
+      shift(multiPaths, (0, -1), (0, 1), 0),
+    ], np.repeat(mandatoryLines[np.newaxis,:,:], 4, 0)], 0)
+    multiPathSiblings = np.count_nonzero([
+      shift(shiftedMandatoryMultiPaths[0], (-1, 0), (0, 1), 0),
+      shift(shiftedMandatoryMultiPaths[1], (1, 0), (0, 1), 0),
+      shift(shiftedMandatoryMultiPaths[2], (0, -1), (0, 1), 0),
+      shift(shiftedMandatoryMultiPaths[3], (0, 1), (0, 1), 0),
+    ], axis=0)
+    
+    if np.any(multiPathSiblings > 2):
+      return None
+
+    return (mandatoryLines, forbiddenLines)
+
+  # To support mishaps, just convert the mishap to a new spike with all other items
+  # Add neighbouring color squares to those mandatory lines
+  # Create mandatory points on points
+  # For each possible set of mandatory lines, make sure they are not unsatisfiable
+  # Unsatisfiability includes impossible path crossings, X shape future paths are impossible
+    # How to detect Xs? Only the next bordering mandatory line or a middle mandatory line are allowed
+  # Run the brute force for each combination of paths.
+  # Add to the unsatisfiability that each pair of line must be reachable after every move.
+  def getStarting(self):
+    startingMask = self.starting == s2c('s')
+    fakeStarter = np.zeros_like(self.starting)
+    startingPositions = []
+    for startingIndex in np.argwhere(startingMask):
+      sampleStarting = np.copy(fakeStarter)
+      sampleStarting[tuple(startingIndex)] = s2c('h')
+      startingPositions.append(sampleStarting)
+
+    realStarting = []
+    for startingPosition in startingPositions:
+      smallNexts = self.getSmallNexts(startingPosition)
+      if len(smallNexts) > 0:
+        realStarting += smallNexts
+      else:
+        realStarting.append(startingPosition)
+
+    realStarting.sort(key=lambda x: self.evalRemaining(x))
+      
+    return realStarting
 
   def getNexts(self, current):
-    pass
+    hMask = current == s2c('h')
+    hToP = np.where(hMask, s2c('p'), current)
+    candidateMandatoryLines = self.getValidMandatoryLines(current, self.geoMandatoryLines)
+    nextStates = []
+
+    nextMultiHMasks = [
+      np.all([shift(hMask, (1,), (0,), 0), hToP != s2c('p'), np.isin(self.starting, self.verticalPaths)], 0),
+      np.all([shift(hMask, (1,), (1,), 0), hToP != s2c('p'), np.isin(self.starting, self.horizontalPaths)], 0),
+      np.all([shift(hMask, (-1,), (0,), 0), hToP != s2c('p'), np.isin(self.starting, self.verticalPaths)], 0),
+      np.all([shift(hMask, (-1,), (1,), 0), hToP != s2c('p'), np.isin(self.starting, self.horizontalPaths)], 0)
+    ]
+
+    next2MultiHMasks = [
+      np.all([shift(hMask, (2,), (0,), 0), hToP != s2c('p'), np.isin(self.starting, self.verticalPaths)], 0),
+      np.all([shift(hMask, (2,), (1,), 0), hToP != s2c('p'), np.isin(self.starting, self.horizontalPaths)], 0),
+      np.all([shift(hMask, (-2,), (0,), 0), hToP != s2c('p'), np.isin(self.starting, self.verticalPaths)], 0),
+      np.all([shift(hMask, (-2,), (1,), 0), hToP != s2c('p'), np.isin(self.starting, self.horizontalPaths)], 0)
+    ]
+
+    for nextMultiHMask, next2MultiHMask in zip(nextMultiHMasks, next2MultiHMasks):
+      if not np.all(np.any([nextMultiHMask, next2MultiHMask], axis=(1, 2))):
+        continue
+
+      nextState = np.copy(hToP)
+      nextState[nextMultiHMask] = s2c('p')
+      nextState[next2MultiHMask] = s2c('h')
+
+      newCandidateMandatoryLines = self.getValidMandatoryLines(nextState, candidateMandatoryLines)
+
+      if len(newCandidateMandatoryLines) == 0:
+        continue
+
+      nextStates.append(nextState)
+
+    nextStates.sort(key=lambda x: self.evalRemaining(x))
+
+    return nextStates
 
   def isSatisfied(self, current):
-    pass
+    pathMask = np.any([current == s2c('h'), current == s2c('p')], 0)
+    if not np.any(np.all([pathMask, self.esMask], 0)):
+      return False
+    
+    if np.count_nonzero(np.all([np.any(self.points, 0), ~pathMask], 0)) > 0:
+      return False
+    
+    partialMandatoryLines = self.getValidMandatoryLines(current, self.geoMandatoryLines)
+    if np.any(~np.all([partialMandatoryLines[:,0], np.repeat(pathMask[np.newaxis,:,:], partialMandatoryLines.shape[0], 0)], 0)):
+      return False
+
+    zoneIndices = self.getZoneIndices(current)
+
+    for satisfiableZoneIndex in range(np.max(zoneIndices) + 1):
+      if not self.isZoneSatisfied(zoneIndices, satisfiableZoneIndex):
+        return False
+      
+    return True
   
   def isUnsatisfiable(self, current):
-    pass
-  
+    # If all ends are a path
+    pathMask = current == s2c('p')
+    if np.all(pathMask[self.esMask]):
+      return True
+    
+    # If the head can't go nowhere
+    headMask = current == s2c('h')
+    walkablePaths = np.all([~pathMask, np.isin(self.starting, self.walkablePaths)], 0)
+    nextSteps = np.any([shift(headMask, (1,), (0,), 0),shift(headMask, (-1,), (0,), 0), shift(headMask, (1,), (1,), 0), shift(headMask, (-1,), (1,), 0)], 0)
+    if not np.any(np.all([nextSteps, walkablePaths], 0)):
+      return True
+
+    zoneIndices = self.getZoneIndices(current)
+    headZoneIndices = self.fullMapToZoneIndex(np.argwhere(current == s2c('h')), zoneIndices)
+    endZoneIndices = self.fullMapToZoneIndex(self.es, zoneIndices)
+
+    # If the head can't reach any end
+    if np.intersect1d(endZoneIndices, headZoneIndices).size == 0:
+      return True
+    
+    if len(self.getValidMandatoryLines(current, self.geoMandatoryLines)) == 0:
+      return True
+    
+    # todo out of reach can be computed better with non reachable zones, making it a half closed zone
+    # If the zones out of head reach are unsatisfied
+    for satisfiableZoneIndex in range(np.max(zoneIndices) + 1):
+      if np.any(headZoneIndices == satisfiableZoneIndex):
+        if self.isPendingZoneUnsatisfiable(zoneIndices, satisfiableZoneIndex):
+          return True
+
+      elif not self.isZoneSatisfied(zoneIndices, satisfiableZoneIndex):
+        return True
+
+    return False
+
   def evalRemaining(self, current):
-    pass
+    pAndH = np.isin(current, [s2c('p'), s2c('h')])
+    candidateMandatoryLines = self.getValidMandatoryLines(current, self.geoMandatoryLines)
+    hPos = np.argwhere(current == s2c('h'))[0]
+    unsatisfiedHeads = np.zeros_like(self.starting, np.bool)
+    unsatisfiedHeads[slice(0, self.starting.shape[0], 2), slice(0, self.starting.shape[1], 2)] = True
+    unsatisfiedHeads = np.all([np.repeat(unsatisfiedHeads[np.newaxis,:,:], candidateMandatoryLines.shape[0], 0), np.repeat(pAndH[np.newaxis,:,:], candidateMandatoryLines.shape[0], 0), candidateMandatoryLines], 0)
+    unsatisfiedHeadIndices = np.argwhere(unsatisfiedHeads)[:,1:3]
+
+    if len(unsatisfiedHeadIndices) == 0:
+      return int(np.min(np.sum(np.abs(self.es - hPos), axis=1)))
+    
+    return int(np.min(np.sum(np.abs(unsatisfiedHeadIndices - hPos), axis=1)))
+  
+  def getZoneIndices(self, current):
+    leftBlockers = np.any([current == s2c('p'), current == s2c('h')], 0)[slice(1, None, 2), slice(0, -2, 2)]
+    rightBlockers = np.any([current == s2c('p'), current == s2c('h')], 0)[slice(1, None, 2), slice(2, None, 2)]
+    topBlockers = np.any([current == s2c('p'), current == s2c('h')], 0)[slice(2, None, 2), slice(1, None, 2)]
+    bottomBlockers = np.any([current == s2c('p'), current == s2c('h')], 0)[slice(0, -2, 2), slice(1, None, 2)]
+
+    zoneIndices = np.ones((int(current.shape[0] / 2), int(current.shape[1] / 2)), dtype=np.int32) * -1
+    lastZoneIndex = 0
+
+    while np.any(zoneIndices == -1):
+      unassignedIndices = np.argwhere(zoneIndices == -1)
+      victimSquareIndex = unassignedIndices[int(unassignedIndices.shape[0]/1.7)]
+
+      previousZoneIndices = np.copy(zoneIndices)
+      zoneIndices[tuple(victimSquareIndex)] = lastZoneIndex
+
+      while np.any(zoneIndices != previousZoneIndices):
+        previousZoneIndices = np.copy(zoneIndices)
+        zoneIndices[np.all([zoneIndices == -1, shift(zoneIndices, (1,), (1,), -1) == lastZoneIndex, ~leftBlockers], 0)] = lastZoneIndex
+        zoneIndices[np.all([zoneIndices == -1, shift(zoneIndices, (-1,), (1,), -1) == lastZoneIndex, ~rightBlockers], 0)] = lastZoneIndex
+        zoneIndices[np.all([zoneIndices == -1, shift(zoneIndices, (1,), (0,), -1) == lastZoneIndex, ~bottomBlockers], 0)] = lastZoneIndex
+        zoneIndices[np.all([zoneIndices == -1, shift(zoneIndices, (-1,), (0,), -1) == lastZoneIndex, ~topBlockers], 0)] = lastZoneIndex
+      
+      lastZoneIndex += 1
+
+    return zoneIndices
+    
+  # todo check if there are points left in the zone
+  def isZoneSatisfied(self, zoneIndices, zoneIndex):
+    zoneMask = (zoneIndices == zoneIndex)
+
+    # Square handling
+    squareColorsMask = np.all([self.squareColors, np.repeat(zoneMask[np.newaxis,:,:], self.squareColors.shape[0], axis=0)], 0)
+
+    if np.count_nonzero(np.any(squareColorsMask, axis=(1, 2))) > 1:
+      return False
+
+    # Spike handling
+    spikesMask = np.all([self.spikes, np.repeat(zoneMask[np.newaxis,:,:], self.spikes.shape[0], axis=0)], 0)
+    spikesCount = np.count_nonzero(spikesMask, axis=(1, 2))
+
+    spikeColorPairMask = np.all([self.spikeColorPairMasks, np.repeat(zoneMask[np.newaxis,:,:], self.spikeColorPairMasks.shape[0], axis=0)], 0)
+    spikeColorPairCount = np.count_nonzero(spikeColorPairMask, axis=(1, 2))
+
+    totalSpikeCounts = spikesCount + spikeColorPairCount
+
+    if np.any(np.all([spikesCount > 0, totalSpikeCounts != 2], 0)):
+      return False
+    
+    # Geos handled solely at the mandatory line level
+  
+  def isPendingZoneUnsatisfiable(self, zoneIndices, zoneIndex):
+    zoneMask = (zoneIndices == zoneIndex)
+
+    # Squares are always eventually satisfiable
+
+    # Spikes need to be in pairs
+    spikesMask = np.all([self.spikes, np.repeat(zoneMask[np.newaxis,:,:], self.spikes.shape[0], axis=0)], 0)
+    spikesCount = np.count_nonzero(spikesMask, axis=(1, 2))
+
+    spikeColorPairMask = np.all([self.spikeColorPairMasks, np.repeat(zoneMask[np.newaxis,:,:], self.spikeColorPairMasks.shape[0], axis=0)], 0)
+    spikeColorPairCount = np.count_nonzero(spikeColorPairMask, axis=(1, 2))
+
+    totalSpikeCounts = spikesCount + spikeColorPairCount
+
+    if np.any(np.all([spikesCount > 0, totalSpikeCounts % 2 == 1], 0)):
+      return True
+    
+    # Geos are handled at the mandatory line level
+      
+    return False
+
+  def getSmallNexts(self, current):
+    hMask = current == s2c('h')
+    hToP = np.where(hMask, s2c('p'), current)
+    nextStates = []
+
+    nextMultiHMasks = [
+      np.all([shift(hMask, (1,), (0,), 0), hToP != s2c('p'), np.isin(self.starting, self.multiPaths)], 0),
+      np.all([shift(hMask, (1,), (1,), 0), hToP != s2c('p'), np.isin(self.starting, self.multiPaths)], 0),
+      np.all([shift(hMask, (-1,), (0,), 0), hToP != s2c('p'), np.isin(self.starting, self.multiPaths)], 0),
+      np.all([shift(hMask, (-1,), (1,), 0), hToP != s2c('p'), np.isin(self.starting, self.multiPaths)], 0)
+    ]
+
+    for nextMultiHMask in nextMultiHMasks:
+      if not np.any(nextMultiHMask):
+        continue
+
+      nextState = np.copy(hToP)
+      nextState[nextMultiHMask] = s2c('h')
+      nextStates.append(nextState)
+
+    nextStates.sort(key=lambda x: self.evalRemaining(x))
+
+    return nextStates
+  
+  def fullMapToZoneIndex(self, indices, zoneIndices):
+    multiIndexOnFullMap = np.repeat(indices[:,np.newaxis,:], 4, axis=1)
+    multiIndexOnFullMap += [[-1, -1], [-1, 1], [1, -1], [1, 1]]
+    multiIndexOnFullMap = multiIndexOnFullMap.reshape((-1, 2))
+    multiIndexOnFullMapCorrectMask = np.all([multiIndexOnFullMap < self.starting.shape, multiIndexOnFullMap >= 0], (0, 2))
+    multiIndexOnFullMap = multiIndexOnFullMap[multiIndexOnFullMapCorrectMask]
+    multiHeadIndexOnZoneMap = (multiIndexOnFullMap / 2).astype(np.int64)
+    return zoneIndices[tuple(multiHeadIndexOnZoneMap.T)]
+  
+  def getValidMandatoryLines(self, current, mandatoryLines):
+    hAndP = np.isin(current, [s2c('p'), s2c('h')])
+
+    forbiddenSatisfied = mandatoryLines[~np.all([np.repeat(hAndP[np.newaxis,:,:], mandatoryLines.shape[0], 0), mandatoryLines[:,1]], 0)]
+
+    # Remove triple and quadruble links
+    multiPaths = np.zeros_like(self.starting, dtype=np.bool)
+    multiPaths[slice(0, multiPaths.shape[0], 2), slice(0, multiPaths.shape[1], 2)] = True
+    mandatoryAndVisited = np.any([np.repeat(hAndP[np.newaxis,:,:], forbiddenSatisfied.shape[0], 0), forbiddenSatisfied[:,0]], 0)
+    shiftedMultiPaths = np.repeat(np.array([
+      shift(multiPaths, (1, 0), (0, 1), 0),
+      shift(multiPaths, (-1, 0), (0, 1), 0),
+      shift(multiPaths, (0, 1), (0, 1), 0),
+      shift(multiPaths, (0, -1), (0, 1), 0),
+    ])[:,np.newaxis,:,:], mandatoryAndVisited.shape[0], 1)
+    repeatedMandatoryAndVisited = np.repeat(mandatoryAndVisited[np.newaxis,:,:,:], 4, 0)
+    shiftedMandatoryMultiPaths = np.all([shiftedMultiPaths, repeatedMandatoryAndVisited], 0)
+    multiPathSiblings = np.count_nonzero([
+      shift(shiftedMandatoryMultiPaths[0], (-1, 0), (1, 2), 0),
+      shift(shiftedMandatoryMultiPaths[1], (1, 0), (1, 2), 0),
+      shift(shiftedMandatoryMultiPaths[2], (0, -1), (1, 2), 0),
+      shift(shiftedMandatoryMultiPaths[3], (0, 1), (1, 2), 0),
+    ], axis=0)
+
+    mandatorySatisfiedMask = np.any(multiPathSiblings > 2, axis=(1, 2))
+
+    return forbiddenSatisfied[mandatorySatisfiedMask]
   
   def buildGeo(self, geoDefinition):
     (_char, _pairedSpike, rotate, array) = geoDefinition
