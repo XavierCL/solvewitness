@@ -5,7 +5,7 @@ from utils import arrayToPrintable, arrayToTuple, fileToArray, arrayToDebug
 from collections import deque
 import time
 
-array = fileToArray("problemTypes/mandatoryLines/maps/test1.txt")
+array = fileToArray("problemTypes/mandatoryLines/maps/test2.txt")
 problem = ProblemDefinition(array)
 stateQueue = deque(problem.getStarting())
 satisfiedState = None
