@@ -331,7 +331,7 @@ class ProblemDefinition(AbstractProblemDefinition):
         anyVisit[tuple(startObjectivePosition)] = True
         successfulObjectives = 0
         for objectiveIndex in range(len(objectiveOrder)):
-          flood = self.floodPath(startObjectivePosition, headObjectives[objectiveOrder[objectiveIndex]], np.all([forbiddenLines, mandatoryLines, mandatoryObjective], 0))
+          flood = self.floodUsefulPath(startObjectivePosition, headObjectives[objectiveOrder[objectiveIndex]], np.all([forbiddenLines, mandatoryLines, mandatoryObjective], 0))
 
           if flood is None:
             continue
@@ -346,7 +346,7 @@ class ProblemDefinition(AbstractProblemDefinition):
           continue
 
         for endObjective in endObjectives:
-          flood = self.floodPath(startObjectivePosition, endObjective, np.all([forbiddenLines, mandatoryLines, mandatoryObjective], 0))
+          flood = self.floodUsefulPath(startObjectivePosition, endObjective, np.all([forbiddenLines, mandatoryLines, mandatoryObjective], 0))
           if flood is None:
             continue
 
@@ -411,14 +411,94 @@ class ProblemDefinition(AbstractProblemDefinition):
         orders.append([placingItem] + nextLists)
     return orders
   
-  def floodPath(self, startPos, endPos, forbiddenLines):
-    # Returns mandatory flood and useful paths
-    # Mandatory flood is made using binary search on the quickest path
-      # If it can be removed and the path is still reachable, return np.zeros
-      # If it can't be removed, try remove the first half, and repeat step one
-      # If a single path can't be removed, add it to the mandatory floods
-    # useful paths is made by marking a path that reached the destination (or a previously marked useful path) as useful
-    pass
+  def floodUsefulPath(self, startPos, endPos, forbiddenLines):
+    aPath = self.floodSinglePath(startPos, endPos, forbiddenLines)
+    if aPath is None:
+      return None
+    
+    mandatoryPath = [self.floodSinglePath(pathLine - 1, pathLine + 1, np.any([forbiddenLines, pathLine], 0)) is not None for pathLine in np.argwhere(aPath)]
+    singleWayLines = np.zeros_like(aPath)
+    pathsNotInSuccessfulPath = np.all([self.floodReachable(startPos, endPos, forbiddenLines), ~aPath], 0)
+    for potentialLine in np.argwhere(pathsNotInSuccessfulPath):
+      if self.floodSinglePath(potentialLine - 1, potentialLine + 1, np.all([forbiddenLines, ~potentialLine], 0)) is None:
+        singleWayLines[tuple(potentialLine)] = True
+
+    return (mandatoryPath, self.floodReachable(startPos, endPos, np.all([forbiddenLines, ~singleWayLines], 0)))
+  
+  def floodSinglePath(self, startPos, endPos, forbiddenLines):
+    startMap = np.zeros_like(forbiddenLines, dtype=np.int32)
+    startMap[tuple(startPos)] = 1
+    endMap = np.zeros_like(forbiddenLines, dtype=np.int32)
+    endMap[tuple(endPos)] = 1
+
+    previousStartMap = np.zeros_like(forbiddenLines)
+    previousEndMap = np.zeros_like(forbiddenLines)
+
+    while np.any(startMap != previousStartMap) and np.any(endMap != previousEndMap):
+      previousStartMap = startMap
+      previousEndMap = endMap
+      startMap = np.where(forbiddenLines, 0, np.where(startMap > 0, startMap, np.max([
+        shift(startMap, (1, 0), (0, 1), 0),
+        shift(startMap, (0, 1), (0, 1), 0),
+        shift(startMap, (0, -1), (0, 1), 0),
+        shift(startMap, (-1, 0), (0, 1), 0),
+      ], 0)))
+
+      endMap = np.where(forbiddenLines, 0, np.where(endMap > 0, endMap, np.max([
+        shift(endMap, (1, 0), (0, 1), 0),
+        shift(endMap, (0, 1), (0, 1), 0),
+        shift(endMap, (0, -1), (0, 1), 0),
+        shift(endMap, (-1, 0), (0, 1), 0),
+      ], 0)))
+
+      if np.any(np.all([startMap > 0, endMap > 0], 0)):
+        path = np.zeros_like(forbiddenLines)
+        startCollisionIndex = np.argwhere(np.all([startMap > 0, endMap > 0], 0))[0]
+        path[tuple(startCollisionIndex)] = True
+        endCollisionIndex = startCollisionIndex
+
+        while not path[startPos]:
+          currentStartPathLength = startMap[tuple(startCollisionIndex)]
+          neighbourIndices = np.array([
+            startCollisionIndex + [1, 0],
+            startCollisionIndex + [-1, 0],
+            startCollisionIndex + [0, 1],
+            startCollisionIndex + [0, -1]
+          ])
+          startCollisionIndex = neighbourIndices[np.argwhere(startMap[neighbourIndices] == currentStartPathLength - 1)[0]]
+
+        while not path[endPos]:
+          currentEndPathLength = endMap[tuple(endCollisionIndex)]
+          neighbourIndices = np.array([
+            endCollisionIndex + [1, 0],
+            endCollisionIndex + [-1, 0],
+            endCollisionIndex + [0, 1],
+            endCollisionIndex + [0, -1]
+          ])
+          endCollisionIndex = neighbourIndices[np.argwhere(endMap[neighbourIndices] == currentEndPathLength - 1)[0]]
+        
+        return path
+
+    return None
+
+  def floodReachable(self, startPos, endPos, forbiddenLines):
+    startMap = np.zeros_like(forbiddenLines)
+    startMap[tuple(startPos)] = 1
+    startMap[tuple(endPos)] = 1
+
+    previousStartMap = np.zeros_like(forbiddenLines)
+
+    while np.any(startMap != previousStartMap):
+      previousStartMap = startMap
+      startMap = np.all([np.any([
+        shift(startMap, (1, 0), (0, 1), 0),
+        shift(startMap, (0, 1), (0, 1), 0),
+        shift(startMap, (0, -1), (0, 1), 0),
+        shift(startMap, (-1, 0), (0, 1), 0),
+        startMap
+      ], 0)])
+
+    return startMap
 
   # To support mishaps, just convert the mishap to a new spike with all other items
   # Add neighbouring color squares to those mandatory lines
