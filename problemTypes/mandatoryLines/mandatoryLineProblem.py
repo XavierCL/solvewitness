@@ -331,7 +331,7 @@ class ProblemDefinition(AbstractProblemDefinition):
         anyVisit[tuple(startObjectivePosition)] = True
         successfulObjectives = 0
         for objectiveIndex in range(len(objectiveOrder)):
-          flood = self.floodUsefulPath(startObjectivePosition, headObjectives[objectiveOrder[objectiveIndex]], np.all([forbiddenLines, mandatoryLines, mandatoryObjective], 0))
+          flood = self.floodUsefulPath(startObjectivePosition, headObjectives[objectiveOrder[objectiveIndex]], np.any([forbiddenLines, mandatoryLines, mandatoryObjective], 0))
 
           if flood is None:
             continue
@@ -346,7 +346,7 @@ class ProblemDefinition(AbstractProblemDefinition):
           continue
 
         for endObjective in endObjectives:
-          flood = self.floodUsefulPath(startObjectivePosition, endObjective, np.all([forbiddenLines, mandatoryLines, mandatoryObjective], 0))
+          flood = self.floodUsefulPath(startObjectivePosition, endObjective, np.any([forbiddenLines, mandatoryLines, mandatoryObjective], 0))
           if flood is None:
             continue
 
@@ -412,15 +412,43 @@ class ProblemDefinition(AbstractProblemDefinition):
     return orders
   
   def floodUsefulPath(self, startPos, endPos, forbiddenLines):
+    forbiddenLines = np.any([forbiddenLines, ~self.walkableMask], 0)
     aPath = self.floodSinglePath(startPos, endPos, forbiddenLines)
     if aPath is None:
       return None
     
-    mandatoryPath = [self.floodSinglePath(pathLine - 1, pathLine + 1, np.any([forbiddenLines, pathLine], 0)) is not None for pathLine in np.argwhere(aPath)]
+    # Build mandatory path
+    bridgePaths = np.all([aPath, ~self.multiPaths], 0)
+    mandatoryPath = np.zeros_like(forbiddenLines)
+    for pathLine in np.argwhere(bridgePaths):
+      if self.verticalPaths[tuple(pathLine)]:
+        start = pathLine + [0, 1]
+        end = pathLine + [0, -1]
+      else:
+        start = pathLine + [1, 0]
+        end = pathLine + [-1, 0]
+
+      forbiddenPathLine = np.ones_like(forbiddenLines)
+      forbiddenPathLine[tuple(pathLine)] = False
+
+      if self.floodSinglePath(start, end, np.all([forbiddenLines, forbiddenPathLine], 0)) is not None:
+        mandatoryPath[tuple(pathLine)] = True
+
+    # Build useful paths
     singleWayLines = np.zeros_like(aPath)
-    pathsNotInSuccessfulPath = np.all([self.floodReachable(startPos, endPos, forbiddenLines), ~aPath], 0)
+    pathsNotInSuccessfulPath = np.all([self.floodReachable(startPos, endPos, forbiddenLines), ~aPath, ~self.multiPaths], 0)
     for potentialLine in np.argwhere(pathsNotInSuccessfulPath):
-      if self.floodSinglePath(potentialLine - 1, potentialLine + 1, np.all([forbiddenLines, ~potentialLine], 0)) is None:
+      if self.verticalPaths[tuple(potentialLine)]:
+        start = potentialLine + [0, 1]
+        end = potentialLine + [0, -1]
+      else:
+        start = potentialLine + [1, 0]
+        end = potentialLine + [-1, 0]
+      
+      forbiddenPathLine = np.ones_like(forbiddenLines)
+      forbiddenPathLine[tuple(potentialLine)] = False
+
+      if (self.floodSinglePath(start, end, np.all([forbiddenLines, forbiddenPathLine], 0))) is None:
         singleWayLines[tuple(potentialLine)] = True
 
     return (mandatoryPath, self.floodReachable(startPos, endPos, np.all([forbiddenLines, ~singleWayLines], 0)))
@@ -466,6 +494,7 @@ class ProblemDefinition(AbstractProblemDefinition):
             startCollisionIndex + [0, -1]
           ])
           startCollisionIndex = neighbourIndices[np.argwhere(startMap[neighbourIndices] == currentStartPathLength - 1)[0]]
+          path[tuple(startCollisionIndex)] = True
 
         while not path[endPos]:
           currentEndPathLength = endMap[tuple(endCollisionIndex)]
@@ -476,6 +505,7 @@ class ProblemDefinition(AbstractProblemDefinition):
             endCollisionIndex + [0, -1]
           ])
           endCollisionIndex = neighbourIndices[np.argwhere(endMap[neighbourIndices] == currentEndPathLength - 1)[0]]
+          path[tuple(endCollisionIndex)] = True
         
         return path
 
