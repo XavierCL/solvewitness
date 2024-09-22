@@ -27,7 +27,7 @@ for _ in pbar:
   if steps % 50 == 0:
     pbar.set_description(f"Queue: {len(stateQueue)}, Path: {[printQueue(i) for i in range(0, 3)]}")
 
-  if steps % 1000 == 0:
+  if steps % 1000 == 0 and steps > 0:
     debugArray = '\n'.join(arrayToDebug(nextStateAttempt))
     print(f"\n{debugArray}")
 

@@ -29,9 +29,12 @@ class ProblemDefinition(AbstractProblemDefinition):
     self.onlyGeos[~np.isin(self.middleSquares, list(self.geos.keys()))] = 0
     self.orderedGeos = [(self.onlyGeos[tuple(a)], a) for a in np.argwhere(self.onlyGeos != 0)]
     self.verticalPaths = np.concatenate([[s2c(l) for l in ['+','|','e','s']], globalPoints])
+    self.verticalPathMask = np.isin(self.starting, self.verticalPaths)
     self.horizontalPaths = np.concatenate([[s2c(l) for l in ['+','-','e','s']], globalPoints])
+    self.horizontalPathsMask = np.isin(self.starting, self.horizontalPaths)
     self.walkablePaths = np.unique(np.concatenate([self.verticalPaths, self.horizontalPaths]))
-    self.multiPaths = np.concatenate([[s2c(l) for l in ['+', 'e']], globalPoints])
+    multiPaths = np.concatenate([[s2c(l) for l in ['+', 'e']], globalPoints])
+    self.multiPathMask = np.isin(self.starting, multiPaths)
     self.walkableMask = np.isin(self.starting, self.walkablePaths)
 
     self.spikeColorPairMasks = np.copy(self.squareColors)
@@ -56,17 +59,18 @@ class ProblemDefinition(AbstractProblemDefinition):
     for groupCombination in groupCombinations:
       possibleInclusiveGeos += self.buildInclusiveGeos(groupCombination)
 
-    print("Possible inclusive geos:", len(possibleInclusiveGeos))
-    print(np.any(possibleInclusiveGeos[0], 0))
+    print("Geo combinations:", len(possibleInclusiveGeos))
 
     # Build geo mandatory lines
     unvisitedGeoMandatoryLines = [self.inclusiveGeoToMandatoryLines(o) for o in possibleInclusiveGeos]
-    unvisitedGeoMandatoryLines = np.array([o for o in self.geoMandatoryLines if o is not None])
+    unvisitedGeoMandatoryLines = np.array([o for o in unvisitedGeoMandatoryLines if o is not None])
 
-    print("Loose mandatory geo lines:", len(unvisitedGeoMandatoryLines))
+    print("Single lined geo combinations:", len(unvisitedGeoMandatoryLines))
 
     self.geoMandatoryLines = [self.visitMandatoryLines(o) for o in unvisitedGeoMandatoryLines]
-    self.geoMandatoryLines = np.array([o for o in self.geoMandatoryLines if o is not None])
+    self.geoMandatoryLines = [o for o in self.geoMandatoryLines if o is not None]
+    self.geoMandatoryLines.sort(key=lambda x: np.count_nonzero(~x[1]) - np.count_nonzero(x[0]))
+    self.geoMandatoryLines = np.array(self.geoMandatoryLines)
 
     print("Mandatory geo lines:", len(self.geoMandatoryLines))
     print('\n'.join(arrayToDebug(np.where(self.geoMandatoryLines[0,0], s2c('p'), 0))))
@@ -316,10 +320,7 @@ class ProblemDefinition(AbstractProblemDefinition):
     mandatoryLines = mandatoryAndForbidden[0]
     forbiddenLines = mandatoryAndForbidden[1]
     successfulVisits = []
-    unsatisfiedHeads = np.zeros_like(self.starting, np.bool)
-    unsatisfiedHeads[slice(0, self.starting.shape[0], 2), slice(0, self.starting.shape[1], 2)] = True
-    unsatisfiedHeads = np.all([unsatisfiedHeads, self.edgeMask, mandatoryLines], 0)
-    headObjectives = np.argwhere(np.any([unsatisfiedHeads], 0))
+    headObjectives = self.getOrderedHeadObjectives(mandatoryLines)
     endObjectives = self.es
 
     for startIndex in np.argwhere(self.starting == s2c('s')):
@@ -330,11 +331,11 @@ class ProblemDefinition(AbstractProblemDefinition):
         anyVisit = np.zeros_like(forbiddenLines)
         anyVisit[tuple(startObjectivePosition)] = True
         successfulObjectives = 0
-        for objectiveIndex in range(len(objectiveOrder)):
+        for objectiveIndex in range(0, len(objectiveOrder), 2):
           flood = self.floodUsefulPath(startObjectivePosition, headObjectives[objectiveOrder[objectiveIndex]], np.any([forbiddenLines, mandatoryLines, mandatoryObjective], 0))
 
           if flood is None:
-            continue
+            break
 
           (mandatoryFlood, usefulPaths) = flood
           anyVisit = np.any([anyVisit, usefulPaths], 0)
@@ -351,8 +352,8 @@ class ProblemDefinition(AbstractProblemDefinition):
             continue
 
           (mandatoryFlood, usefulPaths) = flood
-          endAnyVisit = np.any([anyVisit, usefulPaths], 0)
-          endMandatoryObjective = np.any([mandatoryObjective, mandatoryFlood], 0)
+          endAnyVisit = np.any([mandatoryLines, anyVisit, usefulPaths], 0)
+          endMandatoryObjective = np.any([mandatoryLines, mandatoryObjective, mandatoryFlood], 0)
 
           successfulVisits.append((endMandatoryObjective, endAnyVisit))
 
@@ -360,23 +361,46 @@ class ProblemDefinition(AbstractProblemDefinition):
       return None
     
     newForbiddenLines = ~np.any([s[1] for s in successfulVisits], 0)
-    newMandatoryLines = np.all([s[0] for s in successfulVisits] + [mandatoryLines], 0)
+    newMandatoryLines = np.all([s[0] for s in successfulVisits], 0)
 
     return [newMandatoryLines, newForbiddenLines]
+  
+  def getOrderedHeadObjectives(self, mandatoryLines):
+    unsatisfiedHeads = np.zeros_like(self.starting, np.bool)
+    unsatisfiedHeads[slice(0, self.starting.shape[0], 2), slice(0, self.starting.shape[1], 2)] = True
+    unsatisfiedHeads = np.all([unsatisfiedHeads, self.edgeMask, mandatoryLines], 0)
+    unsatisfiedHeadIndices = np.argwhere(unsatisfiedHeads)
+    accountedHeads = set()
+    orderedHeads = []
+    for unsatisfiedHeadIndex in unsatisfiedHeadIndices:
+      if tuple(unsatisfiedHeadIndex) in accountedHeads:
+        continue
+
+      # Find the pair head
+      reachables = self.floodReachable(unsatisfiedHeadIndex, unsatisfiedHeadIndex, ~mandatoryLines)
+      reachableHeads = np.all([reachables, unsatisfiedHeads], 0)
+      reachableHeads[tuple(unsatisfiedHeadIndex)] = False
+      otherHeadIndex = np.argwhere(reachableHeads)[0]
+      accountedHeads.add(tuple(unsatisfiedHeadIndex))
+      accountedHeads.add(tuple(otherHeadIndex))
+      orderedHeads.append(unsatisfiedHeadIndex)
+      orderedHeads.append(otherHeadIndex)
+
+    return orderedHeads
   
   def buildObjectiveOrders(self, objectiveCount):
     # Takes a list of numbers.
     # Each pair of number in the input order are 'Pairs' of objectives.
     # Pairs must always stick next to another in the output
     # Outputs the 2d array of all possible orders for those objectives
-    semiOrders = self.recursiveBuildOrders(objectiveCount / 2)
-    objectiveSwitches = self.buildAllBinary(objectiveCount / 2)
+    semiOrders = self.recursiveBuildOrders(list(range(int(objectiveCount / 2))))
+    objectiveSwitches = self.buildAllBinary(int(objectiveCount / 2))
 
     orders = []
     for semiOrder in semiOrders:
       for objectiveSwitch in objectiveSwitches:
         manglingOrder = [o for s in semiOrder for o in [s * 2, s * 2 + 1]]
-        for switchIndex, switch in objectiveSwitch:
+        for switchIndex, switch in enumerate(objectiveSwitch):
           if switch:
             (manglingOrder[switchIndex * 2], manglingOrder[switchIndex * 2 + 1]) = (manglingOrder[switchIndex * 2 + 1], manglingOrder[switchIndex * 2])
         orders.append(manglingOrder)
@@ -401,7 +425,7 @@ class ProblemDefinition(AbstractProblemDefinition):
 
   def recursiveBuildOrders(self, remainingItems: list) -> list[list[int]]:
     if len(remainingItems) < 2:
-      return remainingItems
+      return [remainingItems]
     
     orders = []
     for placingItemIndex, placingItem in enumerate(remainingItems):
@@ -418,42 +442,54 @@ class ProblemDefinition(AbstractProblemDefinition):
       return None
     
     # Build mandatory path
-    bridgePaths = np.all([aPath, ~self.multiPaths], 0)
+    bridgePaths = np.all([aPath, ~self.multiPathMask], 0)
+    bridgePaths[tuple(startPos)] = False
+    bridgePaths[tuple(endPos)] = False
     mandatoryPath = np.zeros_like(forbiddenLines)
     for pathLine in np.argwhere(bridgePaths):
-      if self.verticalPaths[tuple(pathLine)]:
-        start = pathLine + [0, 1]
-        end = pathLine + [0, -1]
-      else:
+      if self.verticalPathMask[tuple(pathLine)]:
         start = pathLine + [1, 0]
         end = pathLine + [-1, 0]
+      else:
+        start = pathLine + [0, 1]
+        end = pathLine + [0, -1]
 
-      forbiddenPathLine = np.ones_like(forbiddenLines)
-      forbiddenPathLine[tuple(pathLine)] = False
+      forbiddenPathLine = np.copy(forbiddenLines)
+      forbiddenPathLine[tuple(pathLine)] = True
 
-      if self.floodSinglePath(start, end, np.all([forbiddenLines, forbiddenPathLine], 0)) is not None:
+      if self.floodSinglePath(start, end, forbiddenPathLine, actualPath=False) is None:
         mandatoryPath[tuple(pathLine)] = True
+        mandatoryPath[tuple(start)] = True
+        mandatoryPath[tuple(end)] = True
 
     # Build useful paths
     singleWayLines = np.zeros_like(aPath)
-    pathsNotInSuccessfulPath = np.all([self.floodReachable(startPos, endPos, forbiddenLines), ~aPath, ~self.multiPaths], 0)
-    for potentialLine in np.argwhere(pathsNotInSuccessfulPath):
-      if self.verticalPaths[tuple(potentialLine)]:
-        start = potentialLine + [0, 1]
-        end = potentialLine + [0, -1]
-      else:
+    bridgesNotInSuccessfulPath = np.all([self.floodReachable(startPos, endPos, forbiddenLines), ~aPath, ~self.multiPathMask], 0)
+    for potentialLine in np.argwhere(bridgesNotInSuccessfulPath):
+      if self.verticalPathMask[tuple(potentialLine)]:
         start = potentialLine + [1, 0]
         end = potentialLine + [-1, 0]
-      
-      forbiddenPathLine = np.ones_like(forbiddenLines)
-      forbiddenPathLine[tuple(potentialLine)] = False
+      else:
+        start = potentialLine + [0, 1]
+        end = potentialLine + [0, -1]
 
-      if (self.floodSinglePath(start, end, np.all([forbiddenLines, forbiddenPathLine], 0))) is None:
+      if forbiddenLines[tuple(start)] or forbiddenLines[tuple(end)]:
+        singleWayLines[tuple(potentialLine)] = True
+        continue
+      
+      forbiddenPathLine = np.copy(forbiddenLines)
+      forbiddenPathLine[tuple(potentialLine)] = True
+
+      if self.floodSinglePath(start, end, forbiddenPathLine, actualPath=False) is None:
         singleWayLines[tuple(potentialLine)] = True
 
-    return (mandatoryPath, self.floodReachable(startPos, endPos, np.all([forbiddenLines, ~singleWayLines], 0)))
+    usefulPaths = self.floodReachable(startPos, endPos, np.any([forbiddenLines, singleWayLines], 0))
+    usefulPaths[tuple(startPos)] = True
+    usefulPaths[tuple(endPos)] = True
+
+    return (mandatoryPath, usefulPaths)
   
-  def floodSinglePath(self, startPos, endPos, forbiddenLines):
+  def floodSinglePath(self, startPos, endPos, forbiddenLines, actualPath=True):
     startMap = np.zeros_like(forbiddenLines, dtype=np.int32)
     startMap[tuple(startPos)] = 1
     endMap = np.zeros_like(forbiddenLines, dtype=np.int32)
@@ -465,53 +501,61 @@ class ProblemDefinition(AbstractProblemDefinition):
     while np.any(startMap != previousStartMap) and np.any(endMap != previousEndMap):
       previousStartMap = startMap
       previousEndMap = endMap
+
+      baseStartMap = np.where(startMap > 0, startMap + 1, 0)
       startMap = np.where(forbiddenLines, 0, np.where(startMap > 0, startMap, np.max([
-        shift(startMap, (1, 0), (0, 1), 0),
-        shift(startMap, (0, 1), (0, 1), 0),
-        shift(startMap, (0, -1), (0, 1), 0),
-        shift(startMap, (-1, 0), (0, 1), 0),
+        shift(baseStartMap, (1, 0), (0, 1), 0),
+        shift(baseStartMap, (0, 1), (0, 1), 0),
+        shift(baseStartMap, (0, -1), (0, 1), 0),
+        shift(baseStartMap, (-1, 0), (0, 1), 0),
       ], 0)))
 
+      baseEndMap = np.where(endMap > 0, endMap + 1, 0)
       endMap = np.where(forbiddenLines, 0, np.where(endMap > 0, endMap, np.max([
-        shift(endMap, (1, 0), (0, 1), 0),
-        shift(endMap, (0, 1), (0, 1), 0),
-        shift(endMap, (0, -1), (0, 1), 0),
-        shift(endMap, (-1, 0), (0, 1), 0),
+        shift(baseEndMap, (1, 0), (0, 1), 0),
+        shift(baseEndMap, (0, 1), (0, 1), 0),
+        shift(baseEndMap, (0, -1), (0, 1), 0),
+        shift(baseEndMap, (-1, 0), (0, 1), 0),
       ], 0)))
 
       if np.any(np.all([startMap > 0, endMap > 0], 0)):
+        if not actualPath:
+          return True
+
+        startMap[tuple(startPos)] = 1
+        endMap[tuple(endPos)] = 1
         path = np.zeros_like(forbiddenLines)
         startCollisionIndex = np.argwhere(np.all([startMap > 0, endMap > 0], 0))[0]
         path[tuple(startCollisionIndex)] = True
         endCollisionIndex = startCollisionIndex
 
-        while not path[startPos]:
+        while not path[tuple(startPos)]:
           currentStartPathLength = startMap[tuple(startCollisionIndex)]
-          neighbourIndices = np.array([
+          neighbourIndices = np.array([s for s in [
             startCollisionIndex + [1, 0],
             startCollisionIndex + [-1, 0],
             startCollisionIndex + [0, 1],
             startCollisionIndex + [0, -1]
-          ])
-          startCollisionIndex = neighbourIndices[np.argwhere(startMap[neighbourIndices] == currentStartPathLength - 1)[0]]
+          ] if np.all([s >= 0, s < np.array(self.starting.shape)])])
+          startCollisionIndex = neighbourIndices[np.argwhere(startMap[tuple(neighbourIndices.T)] == currentStartPathLength - 1)[0, 0]]
           path[tuple(startCollisionIndex)] = True
 
-        while not path[endPos]:
+        while not path[tuple(endPos)]:
           currentEndPathLength = endMap[tuple(endCollisionIndex)]
-          neighbourIndices = np.array([
+          neighbourIndices = np.array([s for s in [
             endCollisionIndex + [1, 0],
             endCollisionIndex + [-1, 0],
             endCollisionIndex + [0, 1],
             endCollisionIndex + [0, -1]
-          ])
-          endCollisionIndex = neighbourIndices[np.argwhere(endMap[neighbourIndices] == currentEndPathLength - 1)[0]]
+          ] if np.all([s >= 0, s < np.array(self.starting.shape)])])
+          endCollisionIndex = neighbourIndices[np.argwhere(endMap[tuple(neighbourIndices.T)] == currentEndPathLength - 1)[0, 0]]
           path[tuple(endCollisionIndex)] = True
         
         return path
 
     return None
 
-  def floodReachable(self, startPos, endPos, forbiddenLines):
+  def floodReachable(self, startPos, endPos, forbiddenLines) -> np.ndarray[np.bool]:
     startMap = np.zeros_like(forbiddenLines)
     startMap[tuple(startPos)] = 1
     startMap[tuple(endPos)] = 1
@@ -526,7 +570,7 @@ class ProblemDefinition(AbstractProblemDefinition):
         shift(startMap, (0, -1), (0, 1), 0),
         shift(startMap, (-1, 0), (0, 1), 0),
         startMap
-      ], 0)])
+      ], 0), ~forbiddenLines], 0)
 
     return startMap
 
@@ -746,10 +790,10 @@ class ProblemDefinition(AbstractProblemDefinition):
     nextStates = []
 
     nextMultiHMasks = [
-      np.all([shift(hMask, (1,), (0,), 0), hToP != s2c('p'), np.isin(self.starting, self.multiPaths)], 0),
-      np.all([shift(hMask, (1,), (1,), 0), hToP != s2c('p'), np.isin(self.starting, self.multiPaths)], 0),
-      np.all([shift(hMask, (-1,), (0,), 0), hToP != s2c('p'), np.isin(self.starting, self.multiPaths)], 0),
-      np.all([shift(hMask, (-1,), (1,), 0), hToP != s2c('p'), np.isin(self.starting, self.multiPaths)], 0)
+      np.all([shift(hMask, (1,), (0,), 0), hToP != s2c('p'), self.multiPathMask], 0),
+      np.all([shift(hMask, (1,), (1,), 0), hToP != s2c('p'), self.multiPathMask], 0),
+      np.all([shift(hMask, (-1,), (0,), 0), hToP != s2c('p'), self.multiPathMask], 0),
+      np.all([shift(hMask, (-1,), (1,), 0), hToP != s2c('p'), self.multiPathMask], 0)
     ]
 
     for nextMultiHMask in nextMultiHMasks:
