@@ -1,3 +1,4 @@
+from tqdm import tqdm
 from AbstractProblemDefinition import AbstractProblemDefinition
 import numpy as np
 
@@ -326,7 +327,7 @@ class ProblemDefinition(AbstractProblemDefinition):
     endObjectives = self.es
 
     for startIndex in np.argwhere(self.starting == s2c('s')):
-      for objectiveOrder in self.buildObjectiveOrders(len(headObjectives)):
+      for objectiveOrder in tqdm(self.buildObjectiveOrders(len(headObjectives))):
         startObjectivePosition = startIndex
         mandatoryObjective = np.zeros_like(mandatoryLines)
         mandatoryObjective[tuple(startObjectivePosition)] = True
@@ -635,8 +636,8 @@ class ProblemDefinition(AbstractProblemDefinition):
 
       nextStates.append((nextState, newCandidateMandatoryLines))
 
-    nextStates.sort(key=lambda x: ~np.all(candidateMandatoryLines[0] == x[1][0]))
     nextStates.sort(key=lambda x: self.evalRemaining(x[0]))
+    nextStates.sort(key=lambda x: ~np.all(candidateMandatoryLines[0] == x[1][0]))
     nextStates = [x[0] for x in nextStates]
 
     return nextStates
@@ -701,15 +702,31 @@ class ProblemDefinition(AbstractProblemDefinition):
     pAndH = np.isin(current, [s2c('p'), s2c('h')])
     firstCandidateMandatoryLine = self.getValidMandatoryLines(current, self.geoMandatoryLines)[0]
     hPos = np.argwhere(current == s2c('h'))[0]
-    unsatisfiedHeads = np.zeros_like(self.starting, np.bool)
-    unsatisfiedHeads[slice(0, self.starting.shape[0], 2), slice(0, self.starting.shape[1], 2)] = True
-    unsatisfiedHeads = np.all([unsatisfiedHeads, pAndH, self.edgeMask, firstCandidateMandatoryLine[0]], 0)
-    unsatisfiedHeadIndices = np.argwhere(unsatisfiedHeads)
 
-    if len(unsatisfiedHeadIndices) == 0:
+    multiPaths = np.zeros_like(self.starting, dtype=np.bool)
+    multiPaths[slice(0, multiPaths.shape[0], 2), slice(0, multiPaths.shape[1], 2)] = True
+    mandatoryAndNotVisited = np.all([~pAndH, firstCandidateMandatoryLine[0]], 0)
+    shiftedMultiPaths = np.array([
+      shift(multiPaths, (1, 0), (0, 1), 0),
+      shift(multiPaths, (-1, 0), (0, 1), 0),
+      shift(multiPaths, (0, 1), (0, 1), 0),
+      shift(multiPaths, (0, -1), (0, 1), 0),
+    ])
+    repeatedMandatoryAndNotVisited = np.repeat(mandatoryAndNotVisited[np.newaxis,:,:], 4, 0)
+    shiftedMandatoryMultiPaths = np.all([shiftedMultiPaths, repeatedMandatoryAndNotVisited], 0)
+    multiPathSiblings = np.count_nonzero([
+      shift(shiftedMandatoryMultiPaths[0], (-1, 0), (0, 1), 0),
+      shift(shiftedMandatoryMultiPaths[1], (1, 0), (0, 1), 0),
+      shift(shiftedMandatoryMultiPaths[2], (0, -1), (0, 1), 0),
+      shift(shiftedMandatoryMultiPaths[3], (0, 1), (0, 1), 0),
+    ], axis=0)
+
+    mandatoryUnsatisfied = np.argwhere(multiPathSiblings == 1)
+
+    if len(mandatoryUnsatisfied) == 0:
       return int(np.min(np.sum(np.abs(self.es - hPos), axis=1)))
     
-    return int(np.min(np.sum(np.abs(unsatisfiedHeadIndices - hPos), axis=1)))
+    return int(np.min(np.sum(np.abs(mandatoryUnsatisfied - hPos), axis=1)))
   
   def getZoneIndices(self, current):
     leftBlockers = np.any([current == s2c('p'), current == s2c('h')], 0)[slice(1, None, 2), slice(0, -2, 2)]
@@ -902,6 +919,14 @@ globalGeoStore = [
     [
       [True, True],
       [False, True],
+    ]
+  ),(
+    'd',
+    0,
+    False,
+    [
+      [True],
+      [True],
     ]
   )
 ]
