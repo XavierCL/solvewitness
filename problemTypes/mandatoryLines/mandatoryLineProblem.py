@@ -22,6 +22,7 @@ class ProblemDefinition(AbstractProblemDefinition):
 
     self.spikes = np.array([self.middleSquares == l for l in globalSpikes])
     self.squareColors = np.array([self.middleSquares == l for l in globalSquares])
+    self.points = np.array([starting == l for l in globalPoints])
     self.esMask = starting == s2c('e')
     self.es = np.argwhere(self.esMask)
     self.geos = {s2c(geo[0]): self.buildGeo(geo) for geo in globalGeoStore}
@@ -73,6 +74,7 @@ class ProblemDefinition(AbstractProblemDefinition):
     self.geoMandatoryLines = np.array(self.geoMandatoryLines)
 
     print("Mandatory geo lines:", len(self.geoMandatoryLines))
+    print("Uncertain paths: ", [np.count_nonzero(~x[1]) - np.count_nonzero(x[0]) for x in self.geoMandatoryLines])
     print('\n'.join(arrayToDebug(np.where(self.geoMandatoryLines[0,0], s2c('p'), 0))))
 
   def recursiveBuildGroupCombination(self, remainingToPlace, largestGroupSize):
@@ -577,11 +579,6 @@ class ProblemDefinition(AbstractProblemDefinition):
   # To support mishaps, just convert the mishap to a new spike with all other items
   # Add neighbouring color squares to those mandatory lines
   # Create mandatory points on points
-  # For each possible set of mandatory lines, make sure they are not unsatisfiable
-  # Unsatisfiability includes impossible path crossings, X shape future paths are impossible
-    # How to detect Xs? Only the next bordering mandatory line or a middle mandatory line are allowed
-  # Run the brute force for each combination of paths.
-  # Add to the unsatisfiability that each pair of line must be reachable after every move.
   def getStarting(self):
     startingMask = self.starting == s2c('s')
     fakeStarter = np.zeros_like(self.starting)
@@ -636,9 +633,11 @@ class ProblemDefinition(AbstractProblemDefinition):
       if len(newCandidateMandatoryLines) == 0:
         continue
 
-      nextStates.append(nextState)
+      nextStates.append((nextState, newCandidateMandatoryLines))
 
-    nextStates.sort(key=lambda x: self.evalRemaining(x))
+    nextStates.sort(key=lambda x: ~np.all(candidateMandatoryLines[0] == x[1][0]))
+    nextStates.sort(key=lambda x: self.evalRemaining(x[0]))
+    nextStates = [x[0] for x in nextStates]
 
     return nextStates
 
@@ -651,7 +650,7 @@ class ProblemDefinition(AbstractProblemDefinition):
       return False
     
     partialMandatoryLines = self.getValidMandatoryLines(current, self.geoMandatoryLines)
-    if np.any(~np.all([partialMandatoryLines[:,0], np.repeat(pathMask[np.newaxis,:,:], partialMandatoryLines.shape[0], 0)], 0)):
+    if ~np.any(np.all(np.all([partialMandatoryLines[:,0], np.repeat(pathMask[np.newaxis,:,:], partialMandatoryLines.shape[0], 0)], 0) == partialMandatoryLines[:,0], (1, 2))):
       return False
 
     zoneIndices = self.getZoneIndices(current)
@@ -700,12 +699,12 @@ class ProblemDefinition(AbstractProblemDefinition):
 
   def evalRemaining(self, current):
     pAndH = np.isin(current, [s2c('p'), s2c('h')])
-    candidateMandatoryLines = self.getValidMandatoryLines(current, self.geoMandatoryLines)
+    firstCandidateMandatoryLine = self.getValidMandatoryLines(current, self.geoMandatoryLines)[0]
     hPos = np.argwhere(current == s2c('h'))[0]
     unsatisfiedHeads = np.zeros_like(self.starting, np.bool)
     unsatisfiedHeads[slice(0, self.starting.shape[0], 2), slice(0, self.starting.shape[1], 2)] = True
-    unsatisfiedHeads = np.all([np.repeat(unsatisfiedHeads[np.newaxis,:,:], candidateMandatoryLines.shape[0], 0), ~np.repeat(pAndH[np.newaxis,:,:], candidateMandatoryLines.shape[0], 0), np.repeat(self.edgeMask[np.newaxis,:,:], candidateMandatoryLines.shape[0], 0), candidateMandatoryLines[:,0]], 0)
-    unsatisfiedHeadIndices = np.argwhere(unsatisfiedHeads)[:,1:3]
+    unsatisfiedHeads = np.all([unsatisfiedHeads, pAndH, self.edgeMask, firstCandidateMandatoryLine[0]], 0)
+    unsatisfiedHeadIndices = np.argwhere(unsatisfiedHeads)
 
     if len(unsatisfiedHeadIndices) == 0:
       return int(np.min(np.sum(np.abs(self.es - hPos), axis=1)))
@@ -762,6 +761,7 @@ class ProblemDefinition(AbstractProblemDefinition):
       return False
     
     # Geos handled solely at the mandatory line level
+    return True
   
   def isPendingZoneUnsatisfiable(self, zoneIndices, zoneIndex):
     zoneMask = (zoneIndices == zoneIndex)
@@ -841,7 +841,7 @@ class ProblemDefinition(AbstractProblemDefinition):
       shift(shiftedMandatoryMultiPaths[3], (0, 1), (1, 2), 0),
     ], axis=0)
 
-    mandatorySatisfiedMask = np.any(multiPathSiblings > 2, axis=(1, 2))
+    mandatorySatisfiedMask = ~np.any(multiPathSiblings > 2, axis=(1, 2))
 
     return forbiddenSatisfied[mandatorySatisfiedMask]
   
