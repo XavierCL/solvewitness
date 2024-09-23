@@ -76,6 +76,10 @@ class ProblemDefinition(AbstractProblemDefinition):
 
     print("Mandatory geo lines:", len(self.geoMandatoryLines))
     print("Uncertain paths: ", [np.count_nonzero(~x[1]) - np.count_nonzero(x[0]) for x in self.geoMandatoryLines])
+
+    if self.geoMandatoryLines.shape[0] == 0:
+      return
+    
     print('\n'.join(arrayToDebug(np.where(self.geoMandatoryLines[0,0], s2c('p'), 0))))
 
   def recursiveBuildGroupCombination(self, remainingToPlace, largestGroupSize):
@@ -141,7 +145,9 @@ class ProblemDefinition(AbstractProblemDefinition):
   def buildInclusiveGeos(self, geoCombination):
     remainingGeosToTouch = np.zeros_like(self.middleSquares, dtype=np.bool)
     remainingGeosToTouch[tuple(np.array([self.orderedGeos[o][1] for o in geoCombination[0]]).T)] = 1
-    starting = [[o] for o in self.recursiveBuildSingleInclusiveGeo(np.zeros_like(self.middleSquares, dtype=np.bool), np.ones_like(self.middleSquares, dtype=np.bool), np.zeros_like(self.middleSquares, dtype=np.bool), geoCombination[0], remainingGeosToTouch)]
+    oredFollowing = np.zeros_like(self.middleSquares, dtype=np.bool)
+    oredFollowing[tuple(np.array([self.orderedGeos[o][1] for i in range(1, len(geoCombination)) for o in geoCombination[i]], dtype=np.int64).T.reshape(2, -1))] = True
+    starting = [[o] for o in self.recursiveBuildSingleInclusiveGeo(np.zeros_like(self.middleSquares, dtype=np.bool), np.ones_like(self.middleSquares, dtype=np.bool), oredFollowing, geoCombination[0], remainingGeosToTouch)]
     previouses = []
 
     for geoCombinationIndex in range(1, len(geoCombination)):
@@ -151,7 +157,9 @@ class ProblemDefinition(AbstractProblemDefinition):
         oredPrevious = np.any(previousInclusives, 0)
         remainingGeosToTouch = np.zeros_like(self.middleSquares, dtype=np.bool)
         remainingGeosToTouch[tuple(np.array([self.orderedGeos[o][1] for o in geoCombination[geoCombinationIndex]]).T)] = 1
-        newPartialInclusives = self.recursiveBuildSingleInclusiveGeo(np.zeros_like(self.middleSquares, dtype=np.bool), np.ones_like(self.middleSquares, dtype=np.bool), oredPrevious, geoCombination[geoCombinationIndex], remainingGeosToTouch)
+        oredFollowing = np.zeros_like(self.middleSquares, dtype=np.bool)
+        oredFollowing[tuple(np.array([self.orderedGeos[o][1] for i in range(geoCombinationIndex + 1, len(geoCombination)) for o in geoCombination[i]], dtype=np.int64).T.reshape(2, -1))] = True
+        newPartialInclusives = self.recursiveBuildSingleInclusiveGeo(np.zeros_like(self.middleSquares, dtype=np.bool), np.ones_like(self.middleSquares, dtype=np.bool), np.any([oredPrevious, oredFollowing], 0), geoCombination[geoCombinationIndex], remainingGeosToTouch)
 
         for newPartialInclusive in newPartialInclusives:
           starting.append(previousInclusives + [newPartialInclusive])
@@ -176,7 +184,7 @@ class ProblemDefinition(AbstractProblemDefinition):
     if not np.any(np.all([mustTouchOneOf, ~mustNotTouch], 0)):
       return []
     
-    if len(remainingGeosToPlace) > np.count_nonzero(remainingGeosToTouch):
+    if np.count_nonzero(remainingGeosToTouch) > len(remainingGeosToPlace):
       return []
     
     if len(remainingGeosToPlace) == 0:
@@ -195,7 +203,7 @@ class ProblemDefinition(AbstractProblemDefinition):
 
       attemptedGeo.add(self.orderedGeos[geoToPlace][0])
 
-      placements = self.getGeoPlacements(geoToPlace, mustTouchOneOf, mustNotTouch, remainingGeosToTouch, len(remainingGeosToPlaceCopy) == 0)
+      placements = self.getGeoPlacements(geoToPlace, mustTouchOneOf, mustNotTouch, remainingGeosToPlace, remainingGeosToTouch, len(remainingGeosToPlaceCopy) == 0)
 
       for placement in placements:
         newPartialInclusiveGeo = np.any([partialInclusiveGeo, placement], 0)
@@ -225,9 +233,11 @@ class ProblemDefinition(AbstractProblemDefinition):
 
     return dedupedInclusiveGeos
 
-  def getGeoPlacements(self, geoToPlace, siblingPlacements, mustNotTouch, remainingGeosToTouch, mustTouchEdge):
+  def getGeoPlacements(self, geoToPlace, siblingPlacements, mustNotTouch, remainingGeosToPlace, remainingGeosToTouch, mustTouchEdge):
     geos = self.geos[self.orderedGeos[geoToPlace][0]]
-    mustTouchOneOfs = [siblingPlacements, remainingGeosToTouch]
+    mustTouchOneOfs = [siblingPlacements]
+    if np.count_nonzero(remainingGeosToTouch) >= len(remainingGeosToPlace) and np.count_nonzero(remainingGeosToTouch) > 0:
+      mustTouchOneOfs.append(remainingGeosToTouch)
     if mustTouchEdge:
       mustTouchOneOfs.append(self.edgeMiddleMask)
     mustTouchOneOfs = np.array(mustTouchOneOfs)
@@ -581,6 +591,9 @@ class ProblemDefinition(AbstractProblemDefinition):
   # Add neighbouring color squares to those mandatory lines
   # Create mandatory points on points
   def getStarting(self):
+    if np.count_nonzero(self.onlyGeos) > 0 and self.geoMandatoryLines.shape[0] == 0:
+      return []
+    
     startingMask = self.starting == s2c('s')
     fakeStarter = np.zeros_like(self.starting)
     startingPositions = []
@@ -892,16 +905,21 @@ class ProblemDefinition(AbstractProblemDefinition):
     return bigArrays[keptBigArrays]
   
 # map letter, linked spike, rotatable, matrix definition
-globalGeoStore = [
-  (
+globalGeoStore = [(
     'a',
+    0,
+    False,
+    [
+      [True],
+    ]
+  ),(
+    'b',
     0,
     True,
     [
-      [True],
-      [True],
-      [True],
-      [True],
+      [False, True],
+      [True, False],
+      [False, True],
     ]
   ),(
     'c',
@@ -909,24 +927,17 @@ globalGeoStore = [
     True,
     [
       [False, True],
-      [False, True],
-      [True, True],
-    ]
-  ),(
-    'b',
-    0,
-    True,
-    [
-      [True, True],
+      [True, False],
       [False, True],
     ]
   ),(
     'd',
     0,
-    False,
+    True,
     [
-      [True],
-      [True],
+      [True, True, True],
+      [True, False, False],
+      [True, False, False],
     ]
   )
 ]
