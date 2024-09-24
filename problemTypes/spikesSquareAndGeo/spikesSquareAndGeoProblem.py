@@ -11,7 +11,7 @@ class ProblemDefinition(AbstractProblemDefinition):
     self.squareColors = np.array([middleSquares == l for l in globalSquares])
     self.esMask = starting == s2c('e')
     self.es = np.argwhere(self.esMask)
-    self.geos = {s2c(geo[0]): self.buildGeo(geo) for geo in globalGeoStore}
+    self.geos = {s2c(geo[0]): (geo[3], self.buildGeo(geo)) for geo in globalGeoStore}
     self.onlyGeos = middleSquares
     self.onlyGeos[~np.isin(middleSquares, list(self.geos.keys()))] = 0
     self.points = np.array([starting == l for l in globalPoints])
@@ -193,9 +193,10 @@ class ProblemDefinition(AbstractProblemDefinition):
 
     if len(zonedGeos) > 0:
 
-      nonRotatedZonedGeos = [z[0] for z in zonedGeos]
+      positiveAngledGeos = [z[1][0] for z in zonedGeos if not z[0]]
+      negativeAngledGeos = [z[1][0] for z in zonedGeos if z[0]]
 
-      if np.count_nonzero(zoneMask) != np.count_nonzero(nonRotatedZonedGeos):
+      if np.count_nonzero(zoneMask) != np.count_nonzero(positiveAngledGeos) - np.count_nonzero(negativeAngledGeos):
         return False
       
       if not self.recursiveCanPlaceAllGeos(zoneMask, zonedGeos):
@@ -239,11 +240,32 @@ class ProblemDefinition(AbstractProblemDefinition):
   
   def recursiveCanPlaceAllGeos(self, zoneMaskLeft, geosLeftToPlace):
     if len(geosLeftToPlace) == 1:
-      return len(self.getConfigurations(zoneMaskLeft, geosLeftToPlace[0], earlyReturn=True)) > 0
+      return len(self.getConfigurations(zoneMaskLeft, geosLeftToPlace[0][1], earlyReturn=True)) > 0
     
     geoConfigurations = []
 
-    for geo in geosLeftToPlace:
+    negativeGeosLeftToPlace = [g[1] for g in geosLeftToPlace if g[0]]
+    positiveGeosLeftToPlace = [g for g in geosLeftToPlace if not g[0]]
+
+    if len(negativeGeosLeftToPlace) > 0:
+      for geo in negativeGeosLeftToPlace:
+        configurations = self.getNegativeConfigurations(zoneMaskLeft, geo)
+        if len(configurations) == 0:
+          return False
+        
+        geoConfigurations.append((configurations, geo))
+
+      geoConfigurations.sort(key=lambda x: len(x[0]))
+      newRemainingGeos = [(True, x[1]) for x in geoConfigurations[1:]]
+
+      for geoConfiguration in geoConfigurations[0][0]:
+        newZoneMask = np.any([zoneMaskLeft, geoConfiguration], 0)
+        if self.recursiveCanPlaceAllGeos(newZoneMask, newRemainingGeos + positiveGeosLeftToPlace):
+          return True
+        
+      return False
+
+    for _positive, geo in positiveGeosLeftToPlace:
       configurations = self.getConfigurations(zoneMaskLeft, geo, earlyReturn=False)
       if len(configurations) == 0:
         return False
@@ -252,7 +274,7 @@ class ProblemDefinition(AbstractProblemDefinition):
 
     geoConfigurations.sort(key=lambda x: len(x[0]))
 
-    newRemainingGeos = [x[1] for x in geoConfigurations[1:]]
+    newRemainingGeos = [(False, x[1]) for x in geoConfigurations[1:]]
     
     for geoConfiguration in geoConfigurations[0][0]:
       newZoneMask = np.all([zoneMaskLeft, ~geoConfiguration], 0)
@@ -294,6 +316,69 @@ class ProblemDefinition(AbstractProblemDefinition):
               return np.array(configurations, dtype=np.bool)
 
     return np.array(configurations, dtype=np.bool)
+  
+  def getNegativeConfigurations(self, zoneMask, geo):
+    oneAwayFromZoneMask = np.any([
+      shift(zoneMask, (1, 0), (0, 1), 0),
+      shift(zoneMask, (-1, 0), (0, 1), 0),
+      shift(zoneMask, (0, 1), (0, 1), 0),
+      shift(zoneMask, (0, -1), (0, 1), 0),
+      zoneMask
+    ], 0)
+    whereZoneMask = np.argwhere(zoneMask)
+    topZoneMask = np.min(whereZoneMask[:,0])
+    bottomZoneMask = np.max(whereZoneMask[:,0]) + 1
+    leftZoneMask = np.min(whereZoneMask[:,1])
+    rightZoneMask = np.max(whereZoneMask[:,1]) + 1
+    zoneMaskHeight = bottomZoneMask - topZoneMask
+    zoneMaskWidth = rightZoneMask - leftZoneMask
+
+    configurations = []
+
+    for angledGeo in geo:
+      whereGeo = np.argwhere(angledGeo)
+
+      topGeo = np.min(whereGeo[:,0])
+      bottomGeo = np.max(whereGeo[:,0]) + 1
+      leftGeo = np.min(whereGeo[:,1])
+      rightGeo = np.max(whereGeo[:,1]) + 1
+      geoHeight = bottomGeo - topGeo
+      geoWidth = rightGeo - leftGeo
+
+      driftedZoneMask = oneAwayFromZoneMask
+      for _yDrift in range(geoHeight - 1):
+        driftedZoneMask = np.any([
+          shift(driftedZoneMask, (-1, 0), (0, 1), 0),
+          shift(driftedZoneMask, (0, -1), (0, 1), 0),
+          driftedZoneMask
+        ], 0)
+
+      for _xDrift in range(geoWidth - 1):
+        driftedZoneMask = np.any([
+          shift(driftedZoneMask, (-1, 0), (0, 1), 0),
+          shift(driftedZoneMask, (0, -1), (0, 1), 0),
+          driftedZoneMask
+        ], 0)
+
+      whereDriftedZoneMask = np.argwhere(driftedZoneMask)
+      topDriftedZoneMask = np.min(whereDriftedZoneMask[:,0])
+      bottomDriftedZoneMask = np.max(whereDriftedZoneMask[:,0]) + 1
+      leftDriftedZoneMask = np.min(whereDriftedZoneMask[:,1])
+      rightDriftedZoneMask = np.max(whereDriftedZoneMask[:,1]) + 1
+      driftedZoneMaskHeight = bottomDriftedZoneMask - topDriftedZoneMask
+      driftedZoneMaskWidth = rightDriftedZoneMask - leftDriftedZoneMask
+
+      if driftedZoneMaskHeight < geoHeight or driftedZoneMaskWidth < geoWidth:
+        continue
+      
+      for topY in range(topDriftedZoneMask, bottomDriftedZoneMask - geoHeight + 1):
+        for leftX in range(leftDriftedZoneMask, rightDriftedZoneMask - geoWidth + 1):
+          shiftedAngledGeo = shift(angledGeo, (topY, leftX), (0, 1), 0)
+          if np.any(np.all([shiftedAngledGeo, oneAwayFromZoneMask], 0)) and not np.any(np.all([shiftedAngledGeo, zoneMask], 0)):
+            configurations.append(shiftedAngledGeo)
+
+    return np.array(configurations, dtype=np.bool)
+
 
   def getSmallNexts(self, current):
     hMask = current == s2c('h')
@@ -329,7 +414,7 @@ class ProblemDefinition(AbstractProblemDefinition):
     return zoneIndices[tuple(multiHeadIndexOnZoneMap.T)]
   
   def buildGeo(self, geoDefinition):
-    (_char, _pairedSpike, rotate, array) = geoDefinition
+    (_char, _pairedSpike, rotate, _negative, array) = geoDefinition
 
     array = np.array(array)
     smallArrays = [array]
@@ -357,32 +442,44 @@ class ProblemDefinition(AbstractProblemDefinition):
 
     return bigArrays[keptBigArrays]
   
-# map letter, linked spike, rotatable, matrix definition
+# map letter, linked spike, rotatable, negative, matrix definition
 globalGeoStore = [
   (
     'a',
     0,
     False,
+    False,
     [
-      [True],
+      [True, False, False],
+      [True, True, True],
     ]
   ),(
     'b',
     0,
-    True,
+    False,
+    False,
     [
+      [False, False, True],
+      [True, True, True],
+    ]
+  ),(
+    'c',
+    0,
+    False,
+    False,
+    [
+      [True, True],
       [False, True],
-      [True, False],
       [False, True],
     ]
   ),(
     'd',
     0,
+    False,
     True,
     [
-      [True, True, True],
-      [True, False, False],
-      [True, False, False],
+      [True, True],
+      [True, True],
     ]
   )
 ]

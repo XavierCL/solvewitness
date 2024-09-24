@@ -1,11 +1,11 @@
 import numpy as np
 from tqdm import tqdm
-from problemTypes.mandatoryLines.mandatoryLineProblem import ProblemDefinition
+from problemTypes.spikesSquareAndGeo.spikesSquareAndGeoProblem import ProblemDefinition
 from utils import arrayToPrintable, arrayToTuple, fileToArray, arrayToDebug
 from collections import deque
 import time
 
-array = fileToArray("problemTypes/mandatoryLines/maps/actual3.txt")
+array = fileToArray("problemTypes/spikesSquareAndGeo/maps/actual22.txt")
 problem = ProblemDefinition(array)
 stateQueue = deque(problem.getStarting())
 satisfiedState = None
