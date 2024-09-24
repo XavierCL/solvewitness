@@ -1,7 +1,7 @@
 from AbstractProblemDefinition import AbstractProblemDefinition
 import numpy as np
 
-from utils import s2c, shift, arrayToDebug
+from utils import pad, prepad, s2c, shift, arrayToDebug
 
 class ProblemDefinition(AbstractProblemDefinition):
   def __init__(self, starting: np.ndarray):
@@ -258,8 +258,8 @@ class ProblemDefinition(AbstractProblemDefinition):
       geoConfigurations.sort(key=lambda x: len(x[0]))
       newRemainingGeos = [(True, x[1]) for x in geoConfigurations[1:]]
 
-      for geoConfiguration in geoConfigurations[0][0]:
-        newZoneMask = np.any([zoneMaskLeft, geoConfiguration], 0)
+      for paddedZoneMask, geoConfiguration in geoConfigurations[0][0]:
+        newZoneMask = np.any([paddedZoneMask, geoConfiguration], 0)
         if self.recursiveCanPlaceAllGeos(newZoneMask, newRemainingGeos + positiveGeosLeftToPlace):
           return True
         
@@ -305,10 +305,12 @@ class ProblemDefinition(AbstractProblemDefinition):
 
       if zoneMaskHeight < geoHeight or zoneMaskWidth < geoWidth:
         continue
+
+      paddedAngledGeo = pad(angledGeo, (zoneMask.shape[0] - angledGeo.shape[0], zoneMask.shape[1] - angledGeo.shape[1]), (0, 1), False)
       
       for topY in range(topZoneMask, bottomZoneMask - geoHeight + 1):
         for leftX in range(leftZoneMask, rightZoneMask - geoWidth + 1):
-          shiftedAngledGeo = shift(angledGeo, (topY, leftX), (0, 1), 0)
+          shiftedAngledGeo = shift(paddedAngledGeo, (topY, leftX), (0, 1), 0)
           if np.all(np.all([shiftedAngledGeo, zoneMask], 0) == shiftedAngledGeo):
             configurations.append(shiftedAngledGeo)
 
@@ -318,21 +320,6 @@ class ProblemDefinition(AbstractProblemDefinition):
     return np.array(configurations, dtype=np.bool)
   
   def getNegativeConfigurations(self, zoneMask, geo):
-    oneAwayFromZoneMask = np.any([
-      shift(zoneMask, (1, 0), (0, 1), 0),
-      shift(zoneMask, (-1, 0), (0, 1), 0),
-      shift(zoneMask, (0, 1), (0, 1), 0),
-      shift(zoneMask, (0, -1), (0, 1), 0),
-      zoneMask
-    ], 0)
-    whereZoneMask = np.argwhere(zoneMask)
-    topZoneMask = np.min(whereZoneMask[:,0])
-    bottomZoneMask = np.max(whereZoneMask[:,0]) + 1
-    leftZoneMask = np.min(whereZoneMask[:,1])
-    rightZoneMask = np.max(whereZoneMask[:,1]) + 1
-    zoneMaskHeight = bottomZoneMask - topZoneMask
-    zoneMaskWidth = rightZoneMask - leftZoneMask
-
     configurations = []
 
     for angledGeo in geo:
@@ -344,6 +331,16 @@ class ProblemDefinition(AbstractProblemDefinition):
       rightGeo = np.max(whereGeo[:,1]) + 1
       geoHeight = bottomGeo - topGeo
       geoWidth = rightGeo - leftGeo
+      
+      paddedZoneMask = prepad(pad(zoneMask, (geoHeight, geoWidth), (0, 1), False), (geoHeight, geoWidth), (0, 1), False)
+
+      oneAwayFromZoneMask = np.any([
+        shift(paddedZoneMask, (1, 0), (0, 1), 0),
+        shift(paddedZoneMask, (-1, 0), (0, 1), 0),
+        shift(paddedZoneMask, (0, 1), (0, 1), 0),
+        shift(paddedZoneMask, (0, -1), (0, 1), 0),
+        paddedZoneMask
+      ], 0)
 
       driftedZoneMask = oneAwayFromZoneMask
       for _yDrift in range(geoHeight - 1):
@@ -370,12 +367,14 @@ class ProblemDefinition(AbstractProblemDefinition):
 
       if driftedZoneMaskHeight < geoHeight or driftedZoneMaskWidth < geoWidth:
         continue
+
+      paddedAngledGeo = pad(angledGeo, (paddedZoneMask.shape[0] - angledGeo.shape[0], paddedZoneMask.shape[1] - angledGeo.shape[1]), (0, 1), False)
       
       for topY in range(topDriftedZoneMask, bottomDriftedZoneMask - geoHeight + 1):
         for leftX in range(leftDriftedZoneMask, rightDriftedZoneMask - geoWidth + 1):
-          shiftedAngledGeo = shift(angledGeo, (topY, leftX), (0, 1), 0)
-          if np.any(np.all([shiftedAngledGeo, oneAwayFromZoneMask], 0)) and not np.any(np.all([shiftedAngledGeo, zoneMask], 0)):
-            configurations.append(shiftedAngledGeo)
+          shiftedAngledGeo = shift(paddedAngledGeo, (topY, leftX), (0, 1), 0)
+          if np.any(np.all([shiftedAngledGeo, oneAwayFromZoneMask], 0)) and not np.any(np.all([shiftedAngledGeo, paddedZoneMask], 0)):
+            configurations.append([paddedZoneMask, shiftedAngledGeo])
 
     return np.array(configurations, dtype=np.bool)
 
@@ -450,17 +449,18 @@ globalGeoStore = [
     False,
     False,
     [
-      [True, False, False],
-      [True, True, True],
+      [True],
+      [True],
+      [True],
+      [True],
     ]
   ),(
     'b',
     0,
     False,
-    False,
+    True,
     [
-      [False, False, True],
-      [True, True, True],
+      [True],
     ]
   ),(
     'c',
@@ -468,9 +468,7 @@ globalGeoStore = [
     False,
     False,
     [
-      [True, True],
-      [False, True],
-      [False, True],
+      [True, True, True, True],
     ]
   ),(
     'd',

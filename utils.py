@@ -50,5 +50,25 @@ def shift(array: np.ndarray, s, axis, default):
     
   return result
 
+def pad(array: np.ndarray, s, axis, default):
+  for padAmount, axis in zip(s, axis):
+    padding = np.full_like(array, default)
+    paddingAccess = [slice(None)]*array.ndim
+    paddingAccess[axis] = [0]
+    padding = padding[tuple(paddingAccess)]
+    padding = np.repeat(padding, padAmount, axis)
+    array = np.concatenate([array, padding], axis)
+  return array
+
+def prepad(array: np.ndarray, s, axis, default):
+  for padAmount, axis in zip(s, axis):
+    padding = np.full_like(array, default)
+    paddingAccess = [slice(None)]*array.ndim
+    paddingAccess[axis] = [0]
+    padding = padding[tuple(paddingAccess)]
+    padding = np.repeat(padding, padAmount, axis)
+    array = np.concatenate([padding, array], axis)
+  return array
+
 def arrayToTuple(array: np.ndarray) -> tuple:
   return tuple(array.reshape((-1)))
