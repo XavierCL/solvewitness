@@ -194,9 +194,11 @@ class ProblemDefinition(AbstractProblemDefinition):
     if len(zonedGeos) > 0:
 
       positiveAngledGeos = [z[1][0] for z in zonedGeos if not z[0]]
+      positiveCount = np.sum([np.count_nonzero(z) for z in positiveAngledGeos])
       negativeAngledGeos = [z[1][0] for z in zonedGeos if z[0]]
+      negativeCount = np.sum([np.count_nonzero(z) for z in negativeAngledGeos])
 
-      if np.count_nonzero(zoneMask) != np.count_nonzero(positiveAngledGeos) - np.count_nonzero(negativeAngledGeos):
+      if np.count_nonzero(zoneMask) != positiveCount - negativeCount:
         return False
       
       if not self.recursiveCanPlaceAllGeos(zoneMask, zonedGeos):
@@ -427,6 +429,10 @@ class ProblemDefinition(AbstractProblemDefinition):
       ]
 
     squareShape = ((np.array(self.starting.shape) - 1) / 2).astype(np.int32)
+    squareShape = (
+      np.max([squareShape[0]] + [s.shape[0] for s in smallArrays]),
+      np.max([squareShape[1]] + [s.shape[1] for s in smallArrays])
+    )
     smallArrays = [s for s in smallArrays if s.shape[0] <= squareShape[0] and s.shape[1] <= squareShape[1]]
 
     bigArrays = np.array([np.concatenate([np.concatenate([x, np.zeros((squareShape[0] - x.shape[0], x.shape[1]))], 0), np.zeros((squareShape[0], squareShape[1] - x.shape[1]))], 1) for x in smallArrays])
@@ -449,18 +455,17 @@ globalGeoStore = [
     False,
     False,
     [
-      [True],
-      [True],
-      [True],
-      [True],
+      [True, False, False],
+      [True, True, True],
     ]
   ),(
     'b',
     0,
     False,
-    True,
+    False,
     [
-      [True],
+      [False, False, True],
+      [True, True, True],
     ]
   ),(
     'c',
@@ -468,7 +473,9 @@ globalGeoStore = [
     False,
     False,
     [
-      [True, True, True, True],
+      [True, True],
+      [False, True],
+      [False, True],
     ]
   ),(
     'd',

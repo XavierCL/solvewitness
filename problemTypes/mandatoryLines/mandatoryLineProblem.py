@@ -908,36 +908,27 @@ class ProblemDefinition(AbstractProblemDefinition):
 globalGeoStore = [(
     'a',
     0,
-    False,
+    True,
     [
-      [True],
+      [True, True, True],
+      [True, False, False],
     ]
   ),(
     'b',
     0,
     True,
     [
-      [False, True],
+      [True, True],
       [True, False],
-      [False, True],
+      [True, False],
     ]
   ),(
     'c',
     0,
-    True,
+    False,
     [
-      [False, True],
-      [True, False],
-      [False, True],
-    ]
-  ),(
-    'd',
-    0,
-    True,
-    [
-      [True, True, True],
-      [True, False, False],
-      [True, False, False],
+      [True],
+      [True],
     ]
   )
 ]
