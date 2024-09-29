@@ -48,11 +48,17 @@ class ProblemDefinition(AbstractProblemDefinition):
       spikeIndex = np.argwhere(globalSpikes == s2c(geoDefinition[1]))[0][0]
       self.spikeColorPairMasks[spikeIndex] = np.any([self.spikeColorPairMasks[spikeIndex], self.onlyGeos == s2c(geoDefinition[0])], 0)
 
+    # square mandatory lines
+    squareMandatoryLines = self.buildSquareMandatoryLines()
+
     # Build group combinations
     geoCount = np.count_nonzero(self.onlyGeos)
     groupCombinations = []
     for largestGroupSize in range(geoCount, 0, -1):
       groupCombinations += self.recursiveBuildGroupCombination(list(range(geoCount)), largestGroupSize)
+
+    if geoCount == 0:
+      groupCombinations.append([])
 
     print("Possible combinations:", len(groupCombinations))
 
@@ -64,7 +70,7 @@ class ProblemDefinition(AbstractProblemDefinition):
     print("Geo combinations:", len(possibleInclusiveGeos))
 
     # Build geo mandatory lines
-    unvisitedGeoMandatoryLines = [self.inclusiveGeoToMandatoryLines(o) for o in possibleInclusiveGeos]
+    unvisitedGeoMandatoryLines = [self.inclusiveGeoToMandatoryLines(o, squareMandatoryLines) for o in possibleInclusiveGeos]
     unvisitedGeoMandatoryLines = np.array([o for o in unvisitedGeoMandatoryLines if o is not None])
 
     print("Single lined geo combinations:", len(unvisitedGeoMandatoryLines))
@@ -81,6 +87,32 @@ class ProblemDefinition(AbstractProblemDefinition):
       return
     
     print('\n'.join(arrayToDebug(np.where(self.geoMandatoryLines[0,0], s2c('p'), 0))))
+
+  def buildSquareMandatoryLines(self):
+    squareColors = np.array([self.starting == l for l in globalSquares])
+    siblingSquares = np.any([
+      shift(squareColors, (1, 0), (1, 2), 0),
+      shift(squareColors, (-1, 0), (1, 2), 0),
+      shift(squareColors, (0, 1), (1, 2), 0),
+      shift(squareColors, (0, -1), (1, 2), 0),
+    ], 0)
+
+    twoSiblingSquares = np.count_nonzero(siblingSquares, 0) > 1
+    return self.prolongeVerticalAndHorizontals(twoSiblingSquares)
+  
+  def prolongeVerticalAndHorizontals(self, mandatory):
+    horizontalMask = np.where(self.horizontalPathsMask, mandatory, False)
+    mandatoryHorizontalMultiPath = np.all([np.any([
+      shift(horizontalMask, (0, 1), (0, 1), 0),
+      shift(horizontalMask, (0, -1), (0, 1), 0),
+    ], 0), self.multiPathMask], 0)
+    verticalMask = np.where(self.verticalPathMask, mandatory, False)
+    mandatoryVerticalMultiPath = np.all([np.any([
+      shift(verticalMask, (1, 0), (0, 1), 0),
+      shift(verticalMask, (-1, 0), (0, 1), 0),
+    ], 0), self.multiPathMask], 0)
+
+    return np.any([mandatory, mandatoryHorizontalMultiPath, mandatoryVerticalMultiPath], 0)
 
   def recursiveBuildGroupCombination(self, remainingToPlace, largestGroupSize):
     if largestGroupSize > len(remainingToPlace):
@@ -143,6 +175,8 @@ class ProblemDefinition(AbstractProblemDefinition):
     return groups
   
   def buildInclusiveGeos(self, geoCombination):
+    if len(geoCombination) == 0:
+      return [np.zeros_like(self.middleSquares, dtype=np.bool)]
     remainingGeosToTouch = np.zeros_like(self.middleSquares, dtype=np.bool)
     remainingGeosToTouch[tuple(np.array([self.orderedGeos[o][1] for o in geoCombination[0]]).T)] = 1
     oredFollowing = np.zeros_like(self.middleSquares, dtype=np.bool)
@@ -271,8 +305,8 @@ class ProblemDefinition(AbstractProblemDefinition):
     return placements
   
   # returns an np array on the starting map or None if impossible
-  def inclusiveGeoToMandatoryLines(self, inclusiveGeos):
-    mandatoryLines = np.zeros_like(self.starting, np.bool)
+  def inclusiveGeoToMandatoryLines(self, inclusiveGeos, externalMandatoryLines):
+    mandatoryLines = externalMandatoryLines
     forbiddenLines = np.zeros_like(self.starting, np.bool)
     for inclusiveGeo in inclusiveGeos:
       geoMaskIndices = tuple(np.array(np.where(inclusiveGeo)) * 2 + 1)
@@ -337,7 +371,25 @@ class ProblemDefinition(AbstractProblemDefinition):
     endObjectives = self.es
 
     for startIndex in np.argwhere(self.starting == s2c('s')):
-      for objectiveOrder in tqdm(self.buildObjectiveOrders(len(headObjectives))):
+      objectiveOrder = self.buildObjectiveOrders(len(headObjectives))
+
+      if len(objectiveOrder) == 0:
+        mandatoryObjective = np.zeros_like(mandatoryLines)
+        mandatoryObjective[tuple(startIndex)] = True
+        anyVisit = np.zeros_like(forbiddenLines)
+        anyVisit[tuple(startIndex)] = True
+        for endObjective in endObjectives:
+          flood = self.floodUsefulPath(startIndex, endObjective, np.any([forbiddenLines, mandatoryLines, mandatoryObjective], 0))
+          if flood is None:
+            continue
+
+          (mandatoryFlood, usefulPaths) = flood
+          endAnyVisit = np.any([mandatoryLines, anyVisit, usefulPaths], 0)
+          endMandatoryObjective = np.any([mandatoryLines, mandatoryObjective, mandatoryFlood], 0)
+
+          successfulVisits.append((endMandatoryObjective, endAnyVisit))
+
+      for objectiveOrder in tqdm(objectiveOrder):
         startObjectivePosition = startIndex
         mandatoryObjective = np.zeros_like(mandatoryLines)
         mandatoryObjective[tuple(startObjectivePosition)] = True
@@ -381,7 +433,13 @@ class ProblemDefinition(AbstractProblemDefinition):
   def getOrderedHeadObjectives(self, mandatoryLines):
     unsatisfiedHeads = np.zeros_like(self.starting, np.bool)
     unsatisfiedHeads[slice(0, self.starting.shape[0], 2), slice(0, self.starting.shape[1], 2)] = True
-    unsatisfiedHeads = np.all([unsatisfiedHeads, self.edgeMask, mandatoryLines], 0)
+    mandatorySiblingCount = np.count_nonzero([
+      shift(mandatoryLines, (0, 1), (0, 1), 0),
+      shift(mandatoryLines, (0, -1), (0, 1), 0),
+      shift(mandatoryLines, (1, 0), (0, 1), 0),
+      shift(mandatoryLines, (-1, 0), (0, 1), 0),
+    ], 0)
+    unsatisfiedHeads = np.all([unsatisfiedHeads, mandatoryLines, mandatorySiblingCount < 2], 0)
     unsatisfiedHeadIndices = np.argwhere(unsatisfiedHeads)
     accountedHeads = set()
     orderedHeads = []
@@ -450,6 +508,9 @@ class ProblemDefinition(AbstractProblemDefinition):
   
   def floodUsefulPath(self, startPos, endPos, forbiddenLines):
     forbiddenLines = np.any([forbiddenLines, ~self.walkableMask], 0)
+    forbiddenWithoutObjectives = np.copy(forbiddenLines)
+    forbiddenWithoutObjectives[tuple(startPos)] = False
+    forbiddenWithoutObjectives[tuple(endPos)] = False
     aPath = self.floodSinglePath(startPos, endPos, forbiddenLines)
     if aPath is None:
       return None
@@ -470,7 +531,7 @@ class ProblemDefinition(AbstractProblemDefinition):
       forbiddenPathLine = np.copy(forbiddenLines)
       forbiddenPathLine[tuple(pathLine)] = True
 
-      if self.floodSinglePath(start, end, forbiddenPathLine, actualPath=False) is None:
+      if self.floodSinglePath(startPos, endPos, forbiddenPathLine, actualPath=False) is None:
         mandatoryPath[tuple(pathLine)] = True
         mandatoryPath[tuple(start)] = True
         mandatoryPath[tuple(end)] = True
@@ -486,14 +547,14 @@ class ProblemDefinition(AbstractProblemDefinition):
         start = potentialLine + [0, 1]
         end = potentialLine + [0, -1]
 
-      if forbiddenLines[tuple(start)] or forbiddenLines[tuple(end)]:
+      if forbiddenWithoutObjectives[tuple(start)] or forbiddenWithoutObjectives[tuple(end)]:
         singleWayLines[tuple(potentialLine)] = True
         continue
       
       forbiddenPathLine = np.copy(forbiddenLines)
       forbiddenPathLine[tuple(potentialLine)] = True
 
-      if self.floodSinglePath(start, end, forbiddenPathLine, actualPath=False) is None:
+      if self.floodSinglePath(startPos, endPos, forbiddenPathLine, actualPath=False) is None:
         singleWayLines[tuple(potentialLine)] = True
 
     usefulPaths = self.floodReachable(startPos, endPos, np.any([forbiddenLines, singleWayLines], 0))
@@ -850,7 +911,7 @@ class ProblemDefinition(AbstractProblemDefinition):
   def getValidMandatoryLines(self, current, mandatoryLines):
     hAndP = np.isin(current, [s2c('p'), s2c('h')])
 
-    forbiddenSatisfied = mandatoryLines[~np.any(np.all([np.repeat(hAndP[np.newaxis,:,:], mandatoryLines.shape[0], 0), mandatoryLines[:,1]], 0), (1, 2))]
+    forbiddenSatisfied = mandatoryLines[~np.any(np.all([np.any([np.repeat(hAndP[np.newaxis,:,:], mandatoryLines.shape[0], 0), mandatoryLines[:,0]], 0), mandatoryLines[:,1]], 0), (1, 2))]
 
     # Remove triple and quadruble links
     multiPaths = np.zeros_like(self.starting, dtype=np.bool)
@@ -908,25 +969,16 @@ class ProblemDefinition(AbstractProblemDefinition):
 globalGeoStore = [(
     'a',
     0,
-    True,
+    False,
     [
-      [True, True, True],
-      [True, False, False],
+      [True, True],
     ]
   ),(
     'b',
     0,
-    True,
-    [
-      [True, True],
-      [True, False],
-      [True, False],
-    ]
-  ),(
-    'c',
-    0,
     False,
     [
+      [True],
       [True],
       [True],
     ]

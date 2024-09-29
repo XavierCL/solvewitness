@@ -455,8 +455,10 @@ globalGeoStore = [
     False,
     False,
     [
-      [True, False, False],
-      [True, True, True],
+      [True],
+      [True],
+      [True],
+      [True],
     ]
   ),(
     'b',
@@ -464,27 +466,7 @@ globalGeoStore = [
     False,
     False,
     [
-      [False, False, True],
-      [True, True, True],
-    ]
-  ),(
-    'c',
-    0,
-    False,
-    False,
-    [
-      [True, True],
-      [False, True],
-      [False, True],
-    ]
-  ),(
-    'd',
-    0,
-    False,
-    True,
-    [
-      [True, True],
-      [True, True],
+      [True, True, True, True],
     ]
   )
 ]
