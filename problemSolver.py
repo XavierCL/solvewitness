@@ -5,12 +5,13 @@ from utils import arrayToPrintable, arrayToTuple, fileToArray, arrayToDebug
 from collections import deque
 import time
 
-array = fileToArray("problemTypes/mandatoryLines/maps/actual10.txt")
+array = fileToArray("problemTypes/mandatoryLines/maps/actual11.txt")
 problem = ProblemDefinition(array)
 stateQueue = deque(problem.getStarting())
 satisfiedState = None
 steps = 0
 startTime = time.time()
+playedAskedForStop = False
 
 def printQueue(index):
   if len(stateQueue) <= index:
@@ -39,8 +40,16 @@ for _ in pbar:
 
   for possibleNextState in possibleNextStates:
     if problem.isSatisfied(possibleNextState):
+      print("Satisfied")
+      print(steps, "steps")
+      print(f"{time.time() - startTime:.3f} seconds")
+      print(arrayToPrintable(array, possibleNextState))
       satisfiedState = possibleNextState
-      break
+      con = input("Continue?")
+
+      if con != 'y' and con != 'Y' and con != '1' and con != 'yes':
+        playedAskedForStop = True
+        break
 
   nextStates = [s for s in possibleNextStates if not problem.isUnsatisfiable(s)]
   nextStates.reverse()
@@ -48,16 +57,13 @@ for _ in pbar:
   for nextState in nextStates:
     stateQueue.append(nextState)
 
-  if satisfiedState is not None:
+  if playedAskedForStop:
     break
   steps += 1
 
-if satisfiedState is not None:
-  print("Satisfied")
-  print(steps, "steps")
-  print(f"{time.time() - startTime:.3f} seconds")
-  print(arrayToPrintable(array, satisfiedState))
-else:
+print("Done exploring tree")
+
+if satisfiedState is None:
   print("Unsatisfiable")
   print(steps, "steps")
   print(f"{time.time() - startTime:.3f} seconds")

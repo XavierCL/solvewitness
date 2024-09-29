@@ -86,7 +86,9 @@ class ProblemDefinition(AbstractProblemDefinition):
     if self.geoMandatoryLines.shape[0] == 0:
       return
     
-    print('\n'.join(arrayToDebug(np.where(self.geoMandatoryLines[0,0], s2c('p'), 0))))
+    for o in self.geoMandatoryLines[:]:
+      print('\n'.join(arrayToDebug(np.where(o[0], s2c('p'), 0))))
+      print()
 
   def buildSquareMandatoryLines(self):
     squareColors = np.array([self.starting == l for l in globalSquares])
@@ -754,9 +756,9 @@ class ProblemDefinition(AbstractProblemDefinition):
     if len(validMandatoryLines) == 0:
       return True
 
-    zoneIndices = self.getZoneIndices(np.where(np.all(validMandatoryLines[:,0], 0), s2c('p'), current))
-    headZoneIndices = self.fullMapToZoneIndex(np.argwhere(current == s2c('h')), zoneIndices)
-    endZoneIndices = self.fullMapToZoneIndex(self.es, zoneIndices)
+    currentZoneIndices = self.getZoneIndices(current)
+    headZoneIndices = self.fullMapToZoneIndex(np.argwhere(current == s2c('h')), currentZoneIndices)
+    endZoneIndices = self.fullMapToZoneIndex(self.es, currentZoneIndices)
 
     # If the head can't reach any end
     if np.intersect1d(endZoneIndices, headZoneIndices).size == 0:
@@ -764,12 +766,13 @@ class ProblemDefinition(AbstractProblemDefinition):
     
     # todo out of reach can be computed better with non reachable zones, making it a half closed zone
     # If the zones out of head reach are unsatisfied
-    for satisfiableZoneIndex in range(np.max(zoneIndices) + 1):
+    futureZoneIndices = self.getZoneIndices(np.where(np.all(validMandatoryLines[:,0], 0), s2c('p'), current))
+    for satisfiableZoneIndex in range(np.max(futureZoneIndices) + 1):
       if np.any(headZoneIndices == satisfiableZoneIndex):
-        if self.isPendingZoneUnsatisfiable(zoneIndices, satisfiableZoneIndex):
+        if self.isPendingZoneUnsatisfiable(futureZoneIndices, satisfiableZoneIndex):
           return True
 
-      elif not self.isZoneSatisfied(zoneIndices, satisfiableZoneIndex):
+      elif not self.isZoneSatisfied(futureZoneIndices, satisfiableZoneIndex):
         return True
 
     return False
@@ -970,31 +973,32 @@ class ProblemDefinition(AbstractProblemDefinition):
 # map letter, linked spike, rotatable, matrix definition
 globalGeoStore = [(
     'a',
-    'y',
+    0,
     False,
     [
-      [True, True, True],
-      [False, False, True],
+      [True],
+      [True],
+      [True],
     ]
   ),(
     'b',
     0,
-    True,
+    False,
     [
-      [True, False],
-      [True, False],
       [True, True],
+      [True, False],
     ]
   ),(
     'c',
     0,
     False,
     [
-      [True, True, True],
+      [True],
+      [True],
     ]
   )
 ]
 
-globalSpikes = np.array([s2c(l) for l in ['z', 'y', 'x']])
-globalSquares = np.array([s2c(l) for l in ['l', 'm', 'n']])
+globalSpikes = np.array([s2c(l) for l in ['z', 'y', 'x', 'w', 'v', 'u']])
+globalSquares = np.array([s2c(l) for l in ['l', 'm', 'n', 'o', 'q', 'r']])
 globalPoints = np.array([s2c(l) for l in ['t']])
