@@ -5,7 +5,7 @@ from utils import arrayToPrintable, arrayToTuple, fileToArray, arrayToDebug
 from collections import deque
 import time
 
-array = fileToArray("problemTypes/mandatoryLines/maps/actual7.txt")
+array = fileToArray("problemTypes/mandatoryLines/maps/actual10.txt")
 problem = ProblemDefinition(array)
 stateQueue = deque(problem.getStarting())
 satisfiedState = None
@@ -25,7 +25,7 @@ def generator():
 pbar = tqdm(generator())
 for _ in pbar:
   if steps % 50 == 0:
-    pbar.set_description(f"Queue: {len(stateQueue)}, Path: {[printQueue(i) for i in range(0, 3)]}")
+    pbar.set_description(f"Queue: {len(stateQueue)}, Path: {[printQueue(i) for i in range(0, 10)]}")
 
   if steps % 1000 == 0 and steps > 0:
     debugArray = '\n'.join(arrayToDebug(nextStateAttempt))

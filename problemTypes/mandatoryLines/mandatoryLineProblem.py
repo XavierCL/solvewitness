@@ -748,16 +748,18 @@ class ProblemDefinition(AbstractProblemDefinition):
     nextSteps = np.any([shift(headMask, (1,), (0,), 0),shift(headMask, (-1,), (0,), 0), shift(headMask, (1,), (1,), 0), shift(headMask, (-1,), (1,), 0)], 0)
     if not np.any(np.all([nextSteps, walkablePaths], 0)):
       return True
+    
+    validMandatoryLines = self.getValidMandatoryLines(current, self.geoMandatoryLines)
+    
+    if len(validMandatoryLines) == 0:
+      return True
 
-    zoneIndices = self.getZoneIndices(current)
+    zoneIndices = self.getZoneIndices(np.where(np.all(validMandatoryLines[:,0], 0), s2c('p'), current))
     headZoneIndices = self.fullMapToZoneIndex(np.argwhere(current == s2c('h')), zoneIndices)
     endZoneIndices = self.fullMapToZoneIndex(self.es, zoneIndices)
 
     # If the head can't reach any end
     if np.intersect1d(endZoneIndices, headZoneIndices).size == 0:
-      return True
-    
-    if len(self.getValidMandatoryLines(current, self.geoMandatoryLines)) == 0:
       return True
     
     # todo out of reach can be computed better with non reachable zones, making it a half closed zone
@@ -968,19 +970,27 @@ class ProblemDefinition(AbstractProblemDefinition):
 # map letter, linked spike, rotatable, matrix definition
 globalGeoStore = [(
     'a',
-    0,
+    'y',
     False,
     [
-      [True, True],
+      [True, True, True],
+      [False, False, True],
     ]
   ),(
     'b',
     0,
+    True,
+    [
+      [True, False],
+      [True, False],
+      [True, True],
+    ]
+  ),(
+    'c',
+    0,
     False,
     [
-      [True],
-      [True],
-      [True],
+      [True, True, True],
     ]
   )
 ]
