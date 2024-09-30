@@ -3,9 +3,9 @@ import numpy as np
 def fileToArray(fileName: str) -> np.ndarray:
   f = open(fileName, "r")
   lines = f.readlines()
-  array = np.zeros((len(lines), len(lines[0].strip())), dtype=np.byte)
+  array = np.zeros((len(lines), len(lines[0].strip('\r\n'))), dtype=np.byte)
   for lineIndex, line in enumerate(lines):
-    for charIndex, char in enumerate(line.strip()):
+    for charIndex, char in enumerate(line.strip('\r\n')):
       array[lineIndex, charIndex] = s2c(char)
   return array
 

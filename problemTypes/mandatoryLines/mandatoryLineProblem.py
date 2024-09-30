@@ -719,10 +719,17 @@ class ProblemDefinition(AbstractProblemDefinition):
     return nextStates
 
   def isSatisfied(self, current):
-    pathMask = np.any([current == s2c('h'), current == s2c('p')], 0)
-    if not np.any(np.all([pathMask, self.esMask], 0)):
+    nearHMask = np.any([
+      current == s2c('h'),
+      shift(current == s2c('h'), (1, 0), (0, 1), 0),
+      shift(current == s2c('h'), (-1, 0), (0, 1), 0),
+      shift(current == s2c('h'), (0, 1), (0, 1), 0),
+      shift(current == s2c('h'), (0, -1), (0, 1), 0),
+    ], 0)
+    if not np.any(np.all([nearHMask, self.esMask], 0)):
       return False
     
+    pathMask = np.any([current == s2c('h'), current == s2c('p')], 0)
     if np.count_nonzero(np.all([np.any(self.points, 0), ~pathMask], 0)) > 0:
       return False
     
